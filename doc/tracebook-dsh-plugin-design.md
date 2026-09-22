@@ -1,6 +1,6 @@
 # Tracebook：DeepSeek Harness 工程调查结果组织插件设计
 
-> 状态：方案设计稿 / MVP 开发基线  
+> 状态：MVP 已实现 / 后续演进基线
 > 更新时间：2026-09-22  
 > 目标宿主：DeepSeek Harness（DSH）Web Profile  
 > 前端：Vue 3 + Vue Flow + ELK.js  
@@ -41,6 +41,17 @@ Agent 读取已有 Tracebook Context 后继续调查
 因此 Tracebook 最终沉淀的不是“Agent 执行日志”，而是：
 
 > **随着用户持续追问而不断生长的一份工程调查文档。**
+
+## 实现状态（2026-09-22）
+
+本仓库已经完成本文第 22 节定义的 MVP：
+
+- Core：CaseDocument、7 种 Block、Artifact Schema、Repository 抽象、稳定 ID upsert、revision 并发保护和 Context 压缩。
+- Host：DSH Domain Storage adapter、三个 Agent Tool、文件 Artifact Store、同源只读 API 与 Vue 静态资源路由。
+- Viewer：Case List、Case Detail、全部 Block Renderer、Table 筛选、Evidence/Gallery Artifact 访问、Vue Flow + ELK.js 自动布局与 Node Inspector。
+- 工程化：TypeScript 严格检查、Vitest 覆盖核心闭环、Vite/tsup 生产构建和 DSH Bundle manifest。
+
+MVP 保持 Agent Tool 为唯一业务写入口；HTTP API 只读。可选 Thin Client Entry 和 `Ask about this` 仍属于后续版本。
 
 ---
 

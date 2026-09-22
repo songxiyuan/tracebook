@@ -1,0 +1,133 @@
+import { createReadStream } from 'node:fs'
+import { readFile, stat } from 'node:fs/promises'
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import { extname, resolve, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { lookup } from 'mime-types'
+import type { Context } from '@deepseek-ai/cordis'
+import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
+import { TracebookError } from '../core/errors.js'
+import type { TracebookService } from '../core/service.js'
+
+const defaultWebRoot = fileURLToPath(new URL('../../dist/web/', import.meta.url))
+
+function sendJson(response: ServerResponse, status: number, value: unknown) {
+  const body = JSON.stringify(value)
+  response.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'content-length': Buffer.byteLength(body),
+    'cache-control': 'no-store',
+  })
+  response.end(response.req.method === 'HEAD' ? undefined : body)
+}
+
+function sendError(response: ServerResponse, error: unknown) {
+  if (error instanceof TracebookError) {
+    const status = error.code === 'NOT_FOUND' || error.code === 'ARTIFACT_NOT_FOUND' ? 404
+      : error.code === 'CONFLICT' ? 409
+        : 400
+    sendJson(response, status, { error: { code: error.code, message: error.message } })
+    return
+  }
+  sendJson(response, 500, { error: { code: 'INTERNAL_ERROR', message: 'Unexpected Tracebook error' } })
+}
+
+async function streamFile(response: ServerResponse, path: string, method: string, cacheControl: string) {
+  const info = await stat(path)
+  if (!info.isFile()) return false
+  response.writeHead(200, {
+    'content-type': lookup(path) || 'application/octet-stream',
+    'content-length': info.size,
+    'cache-control': cacheControl,
+    'x-content-type-options': 'nosniff',
+  })
+  if (method === 'HEAD') response.end()
+  else createReadStream(path).pipe(response)
+  return true
+}
+
+async function handleApi(pathname: string, request: IncomingMessage, response: ServerResponse, service: TracebookService) {
+  if (request.method !== 'GET' && request.method !== 'HEAD') {
+    response.writeHead(405, { allow: 'GET, HEAD' }).end()
+    return
+  }
+  if (pathname === '/tracebook/api/cases') {
+    sendJson(response, 200, { cases: await service.listCases() })
+    return
+  }
+  const caseMatch = pathname.match(/^\/tracebook\/api\/cases\/([^/]+)(?:\/blocks)?$/)
+  if (caseMatch) {
+    const document = await service.requireCase(decodeURIComponent(caseMatch[1]!))
+    if (pathname.endsWith('/blocks')) sendJson(response, 200, { blocks: document.blocks })
+    else sendJson(response, 200, document)
+    return
+  }
+  const artifactMatch = pathname.match(/^\/tracebook\/api\/artifacts\/([^/]+)$/)
+  if (artifactMatch) {
+    const { artifact, path } = await service.resolveArtifact(decodeURIComponent(artifactMatch[1]!))
+    response.setHeader('content-disposition', `inline; filename*=UTF-8''${encodeURIComponent(artifact.name ?? artifact.id)}`)
+    await streamFile(response, path, request.method, 'private, max-age=300')
+    return
+  }
+  sendJson(response, 404, { error: { code: 'NOT_FOUND', message: 'API route not found' } })
+}
+
+async function handleStatic(pathname: string, request: IncomingMessage, response: ServerResponse, webRoot: string) {
+  if (request.method !== 'GET' && request.method !== 'HEAD') {
+    response.writeHead(405, { allow: 'GET, HEAD' }).end()
+    return
+  }
+  const relative = pathname.replace(/^\/tracebook\/?/, '')
+  const root = resolve(webRoot)
+  const candidate = resolve(root, relative || 'index.html')
+  if (candidate !== root && !candidate.startsWith(`${root}${sep}`)) {
+    response.writeHead(403).end()
+    return
+  }
+  try {
+    if (relative && extname(relative) && await streamFile(response, candidate, request.method, 'public, max-age=31536000, immutable')) return
+    const indexPath = resolve(root, 'index.html')
+    const body = await readFile(indexPath)
+    response.writeHead(200, {
+      'content-type': 'text/html; charset=utf-8',
+      'content-length': body.byteLength,
+      'cache-control': 'no-cache',
+      'x-content-type-options': 'nosniff',
+    })
+    response.end(request.method === 'HEAD' ? undefined : body)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') response.writeHead(404).end()
+    else throw error
+  }
+}
+
+export function registerHttpRoutes(
+  ctx: Context,
+  service: TracebookService,
+  webRoot = defaultWebRoot,
+) {
+  // `webServer` is the current DSH service key. The published rc.1 type package
+  // still calls the same route registry `httpServer`, so keep a compatibility
+  // fallback until the next public package catches up with the documented API.
+  const host = (ctx as Context & {
+    webServer?: { register(route: WebRoute): () => void }
+    httpServer?: { register(route: WebRoute): () => void }
+  }).webServer ?? (ctx as Context & { httpServer?: { register(route: WebRoute): () => void } }).httpServer
+  if (!host) throw new Error('Tracebook requires the DSH webServer service')
+  return host.register({
+    kind: 'prefix',
+    path: '/tracebook',
+    async handler(request: IncomingMessage, response: ServerResponse) {
+      try {
+        const url = new URL(request.url ?? '/', 'http://tracebook.local')
+        if (url.pathname.startsWith('/tracebook/api/')) {
+          await handleApi(url.pathname, request, response, service)
+        } else {
+          await handleStatic(url.pathname, request, response, webRoot)
+        }
+      } catch (error) {
+        sendError(response, error)
+      }
+    },
+  })
+}
