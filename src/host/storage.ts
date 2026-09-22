@@ -4,7 +4,10 @@ import {
   artifactSchema,
   blockSchema,
   caseDocumentSchema,
+  caseRevisionSnapshotSchema,
+  revisionSnapshotOf,
   summarizeCase,
+  summarizeRevision,
   type Artifact,
   type Block,
   type CaseDocument,
@@ -18,6 +21,11 @@ const caseRecordSchema = caseDocumentSchema.omit({ blocks: true, artifacts: true
 const blockRecordSchema = z.object({ caseId: z.string(), block: blockSchema })
 const artifactRecordSchema = z.object({ caseId: z.string(), artifact: artifactSchema })
 const sessionLinkSchema = z.object({ caseId: z.string() })
+const revisionRecordSchema = z.object({
+  caseId: z.string(),
+  revision: z.number().int().positive(),
+  snapshot: caseRevisionSnapshotSchema,
+})
 
 export const tracebookDomainSpec = defineDomain({
   name: 'tracebook',
@@ -28,6 +36,7 @@ export const tracebookDomainSpec = defineDomain({
     blocks: domainTable<string, z.infer<typeof blockRecordSchema>>(blockRecordSchema),
     artifacts: domainTable<string, z.infer<typeof artifactRecordSchema>>(artifactRecordSchema),
     session_links: domainTable<string, z.infer<typeof sessionLinkSchema>>(sessionLinkSchema),
+    revisions: domainTable<string, z.infer<typeof revisionRecordSchema>>(revisionRecordSchema),
   },
 })
 
@@ -115,6 +124,12 @@ export class DshCaseRepository implements CaseRepository {
     for (const artifact of artifacts) {
       await artifactTable.put(compoundKey(parsed.id, artifact.id), { caseId: parsed.id, artifact })
     }
+
+    await this.domain.table('revisions').put(compoundKey(parsed.id, String(parsed.revision)), {
+      caseId: parsed.id,
+      revision: parsed.revision,
+      snapshot: revisionSnapshotOf(parsed),
+    })
   }
 
   async getActiveCase(sessionId: string) {
@@ -123,5 +138,17 @@ export class DshCaseRepository implements CaseRepository {
 
   async setActiveCase(sessionId: string, caseId: string) {
     await this.domain.table('session_links').put(sessionId, { caseId })
+  }
+
+  async listRevisions(caseId: string) {
+    return [...this.domain.table('revisions').entries()]
+      .filter(([, record]) => record.caseId === caseId)
+      .map(([, record]) => summarizeRevision(record.snapshot))
+      .sort((a, b) => b.revision - a.revision)
+  }
+
+  async getRevision(caseId: string, revision: number) {
+    const record = this.domain.table('revisions').get(compoundKey(caseId, String(revision)))
+    return record?.caseId === caseId ? record.snapshot : undefined
   }
 }

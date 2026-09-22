@@ -7,5 +7,6 @@ export const router = createRouter({
   routes: [
     { path: '/', name: 'cases', component: CaseList },
     { path: '/cases/:id', name: 'case', component: CaseDetail },
+    { path: '/:pathMatch(.*)*', redirect: { name: 'cases' } },
   ],
 })

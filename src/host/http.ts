@@ -25,7 +25,9 @@ function sendJson(response: ServerResponse, status: number, value: unknown) {
 
 function sendError(response: ServerResponse, error: unknown) {
   if (error instanceof TracebookError) {
-    const status = error.code === 'NOT_FOUND' || error.code === 'ARTIFACT_NOT_FOUND' ? 404
+    const status = error.code === 'NOT_FOUND'
+      || error.code === 'ARTIFACT_NOT_FOUND'
+      || error.code === 'REVISION_NOT_FOUND' ? 404
       : error.code === 'CONFLICT' ? 409
         : 400
     sendJson(response, status, { error: { code: error.code, message: error.message } })
@@ -55,6 +57,29 @@ async function handleApi(pathname: string, request: IncomingMessage, response: S
   }
   if (pathname === '/tracebook/api/cases') {
     sendJson(response, 200, { cases: await service.listCases() })
+    return
+  }
+  const sessionMatch = pathname.match(/^\/tracebook\/api\/sessions\/([^/]+)\/cases$/)
+  if (sessionMatch) {
+    sendJson(response, 200, await service.sessionCases(decodeURIComponent(sessionMatch[1]!)))
+    return
+  }
+  const revisionListMatch = pathname.match(/^\/tracebook\/api\/cases\/([^/]+)\/revisions$/)
+  if (revisionListMatch) {
+    sendJson(response, 200, await service.revisions(decodeURIComponent(revisionListMatch[1]!)))
+    return
+  }
+  const revisionMatch = pathname.match(/^\/tracebook\/api\/cases\/([^/]+)\/revisions\/(\d+)$/)
+  if (revisionMatch) {
+    sendJson(response, 200, await service.revisionSnapshot(
+      decodeURIComponent(revisionMatch[1]!),
+      Number(revisionMatch[2]),
+    ))
+    return
+  }
+  const revisionProbeMatch = pathname.match(/^\/tracebook\/api\/cases\/([^/]+)\/revision$/)
+  if (revisionProbeMatch) {
+    sendJson(response, 200, await service.revision(decodeURIComponent(revisionProbeMatch[1]!)))
     return
   }
   const caseMatch = pathname.match(/^\/tracebook\/api\/cases\/([^/]+)(?:\/blocks)?$/)

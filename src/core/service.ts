@@ -127,6 +127,45 @@ export class TracebookService {
     return this.repository.list()
   }
 
+  /**
+   * Resolve one DSH session to its cases without a second write path: the link
+   * is read from the same `sourceSessions` the Agent tools already maintain,
+   * and the active case from the same `session_links` row `tracebook_open`
+   * writes. The Viewer never guesses when several cases are linked.
+   */
+  async sessionCases(sessionId: string) {
+    const cases = (await this.repository.list()).filter((summary) => summary.sourceSessions.includes(sessionId))
+    const activeCaseId = await this.repository.getActiveCase(sessionId)
+    return {
+      sessionId,
+      activeCaseId: activeCaseId && cases.some((summary) => summary.id === activeCaseId) ? activeCaseId : undefined,
+      cases,
+    }
+  }
+
+  /** Cheap revision probe for the Viewer's update notice; never returns the document body. */
+  async revision(caseId: string) {
+    const document = await this.requireCase(caseId)
+    return {
+      caseId: document.id,
+      revision: document.revision,
+      status: document.status,
+      updatedAt: document.updatedAt,
+    }
+  }
+
+  async revisions(caseId: string) {
+    await this.requireCase(caseId)
+    return { caseId, revisions: await this.repository.listRevisions(caseId) }
+  }
+
+  async revisionSnapshot(caseId: string, revision: number) {
+    await this.requireCase(caseId)
+    const snapshot = await this.repository.getRevision(caseId, revision)
+    if (!snapshot) throw new TracebookError('REVISION_NOT_FOUND', `Revision not found: ${caseId}@${revision}`)
+    return snapshot
+  }
+
   async getCase(caseId: string) {
     return this.repository.get(caseId)
   }

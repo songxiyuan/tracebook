@@ -142,6 +142,61 @@ export type FlowBlock = z.infer<typeof flowBlockSchema>
 export type Artifact = z.infer<typeof artifactSchema>
 export type CaseDocument = z.infer<typeof caseDocumentSchema>
 
+/**
+ * One stored point in a case's history: the state a revision reached.
+ *
+ * History is derived bookkeeping, not a second protocol: the snapshot is built
+ * from the same `CaseDocument` the case itself stores, and only the fields a
+ * reader diffs (title, summary, status, blocks) are retained.
+ */
+export const caseRevisionSnapshotSchema = z.object({
+  caseId: nonEmpty,
+  revision: z.number().int().positive(),
+  title: nonEmpty,
+  status: z.enum(['active', 'completed', 'archived']).default('active'),
+  summary: z.string().optional(),
+  blocks: z.array(blockSchema),
+  updatedAt: z.string().datetime(),
+})
+
+export type CaseRevisionSnapshot = z.infer<typeof caseRevisionSnapshotSchema>
+
+/** Project the case's current state into the revision snapshot that history stores. */
+export function revisionSnapshotOf(document: CaseDocument): CaseRevisionSnapshot {
+  return caseRevisionSnapshotSchema.parse({
+    caseId: document.id,
+    revision: document.revision,
+    title: document.title,
+    status: document.status,
+    summary: document.summary,
+    blocks: document.blocks,
+    updatedAt: document.updatedAt,
+  })
+}
+
+/** A revision without its blocks, for history list reads. */
+export interface CaseRevisionSummary {
+  caseId: string
+  revision: number
+  title: string
+  status: CaseDocument['status']
+  summary?: string
+  blockCount: number
+  updatedAt: string
+}
+
+export function summarizeRevision(snapshot: CaseRevisionSnapshot): CaseRevisionSummary {
+  return {
+    caseId: snapshot.caseId,
+    revision: snapshot.revision,
+    title: snapshot.title,
+    status: snapshot.status,
+    summary: snapshot.summary,
+    blockCount: snapshot.blocks.length,
+    updatedAt: snapshot.updatedAt,
+  }
+}
+
 export const artifactInputSchema = z.object({
   id: nonEmpty.optional(),
   kind: nonEmpty,
@@ -167,6 +222,8 @@ export interface CaseSummary {
   blockCount: number
   artifactCount: number
   revision: number
+  /** DSH sessions linked to this case; the Viewer uses it to resolve the current session's case. */
+  sourceSessions: string[]
   createdAt: string
   updatedAt: string
 }
@@ -182,6 +239,7 @@ export function summarizeCase(document: CaseDocument): CaseSummary {
     blockCount: document.blocks.length,
     artifactCount: document.artifacts.length,
     revision: document.revision,
+    sourceSessions: document.sourceSessions,
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
   }

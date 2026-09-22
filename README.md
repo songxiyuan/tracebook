@@ -11,9 +11,12 @@ Tracebook 是运行在 DeepSeek Harness（DSH）上的工程调查结果组织�
 - `tracebook_context`：返回适合后续 Agent 使用的压缩 Context。
 - DSH Domain Storage：Core 只依赖 `CaseRepository`，DSH 细节集中在 Host adapter。
 - 文件 Artifact Store：原子写入 Screenshot、Log、HTTP、Trace 等原始资料，Case 仅保存元数据与引用。
-- 同源只读 API：Case List、Case Detail、Blocks 与 Artifact 内容。
-- Vue 3 Viewer：Case 列表/搜索、Case 文档、七种 Block Renderer、表格筛选、Gallery、Evidence。
-- Vue Flow + ELK.js：流程渲染、自动布局、缩放、Minimap 与 Node Inspector。
+- 同源只读 API：Case List、Case Detail、Blocks、Artifact 内容、Session 关联与 Revision 历史。
+- Vue 3 Viewer：Case 列表/搜索、Block 搜索、Case 文档、七种 Block Renderer、表格筛选、Artifact 类型筛选与内嵌预览、Gallery、Evidence。
+- Vue Flow + ELK.js：流程渲染、自动布局、缩放、Minimap、Node Inspector 与 Layout 切换。
+- 更新提示：轮询 revision，提示新版本并在刷新时保留滚动位置与 Flow 选中项。
+- `Ask about this`：从 Flow Node / Evidence 携带上下文回到当前 DSH 对话输入框（只填入草稿，不自动发送）。
+- DSH 原生入口：会话标题栏 `Tracebook` 按钮，经 Right Sidebar 打开当前 Session 的 Case。
 
 支持的 Block：`markdown`、`facts`、`flow`、`table`、`timeline`、`evidence`、`gallery`。
 
@@ -36,7 +39,9 @@ dsh --profile web --dump-config
 dsh --profile web
 ```
 
-打开 `http://127.0.0.1:<dsh-port>/tracebook/`。
+打开 `http://127.0.0.1:<dsh-port>/tracebook/`，或直接点击会话标题栏的 `Tracebook` 按钮。
+
+修改 Host Plugin 或 Client Plugin 之后需要重启 `dsh web`：Host 侧重新加载 `dist/index.js`，浏览器侧重新扫描 `dsh.client` 并加载 `dist/client.js`；只刷新页面不够。仅修改 Vue 时重新 `npm run build:web` 并刷新页面即可。
 
 ## 配置
 
@@ -114,8 +119,28 @@ Viewer 使用同源只读 API；MVP 的唯一业务写入口是 Agent Tool。
 GET /tracebook/api/cases
 GET /tracebook/api/cases/:id
 GET /tracebook/api/cases/:id/blocks
+GET /tracebook/api/cases/:id/revision
+GET /tracebook/api/cases/:id/revisions
+GET /tracebook/api/cases/:id/revisions/:revision
+GET /tracebook/api/sessions/:sessionId/cases
 GET /tracebook/api/artifacts/:id
 ```
+
+## Client Plugin
+
+`src/client/` 是很薄的一层浏览器插件，只做三件事：
+
+1. 在会话标题栏注册 `Tracebook` 按钮，打开当前 Session 的 Case（Right Sidebar，失败退化为新标签）。
+2. 在 Right Sidebar 注册 `tracebook` page tab，用同源 iframe 承载 Vue SPA。
+3. 监听 Viewer 的 `postMessage`，把 `Ask about this` 文本追加到当前对话草稿。
+
+构建产物是 DSH Client Modules 期望的 lazy-CJS bundle：
+
+```bash
+npm run build:client   # → dist/client.js + dist/client.js.map
+```
+
+`package.json` 通过 `exports["./client"]` 与 `dsh.client` 声明；宿主启动时按 profile 扫描加载。
 
 ## 开发
 
@@ -129,9 +154,11 @@ npm run verify
 ```text
 src/core/          领域模型、Schema、Repository、Service
 src/host/          DSH Storage、Tool、HTTP、Artifact adapter
+src/client/        DSH 薄 Client Plugin（入口、Tab、追问桥接）
 web/src/           Vue Viewer
+scripts/           Client bundle 构建
 tests/             Core 与 Artifact Store 测试
 doc/               设计文档
 ```
 
-完整架构与产品边界见 [设计方案](doc/tracebook-dsh-plugin-design.md)，尚未完成的用户交互见 [未完成交互说明](doc/tracebook-pending-interactions.md)。
+完整架构与产品边界见 [设计方案](doc/tracebook-dsh-plugin-design.md)，交互补齐的范围、落地位置与验收见 [交互补齐说明](doc/tracebook-pending-interactions.md)。

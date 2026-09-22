@@ -94,4 +94,53 @@ describe('TracebookService', () => {
     expect(result.artifactIds).toEqual(['log-1'])
     expect((await service.requireCase(caseId)).artifacts[0]).toMatchObject({ id: 'log-1', size: 13 })
   })
+
+  it('resolves a session to its linked and active cases without guessing', async () => {
+    const service = createService()
+    const first = await service.open({ title: 'PPT generation', sourceSessionId: 'session-a' })
+    await service.open({ title: 'Unrelated incident', sourceSessionId: 'session-b' })
+
+    const linked = await service.sessionCases('session-a')
+    expect(linked.activeCaseId).toBe(first.caseId)
+    expect(linked.cases.map((item) => item.id)).toEqual([first.caseId])
+    expect(linked.cases[0]?.sourceSessions).toEqual(['session-a'])
+
+    const empty = await service.sessionCases('session-c')
+    expect(empty.activeCaseId).toBeUndefined()
+    expect(empty.cases).toEqual([])
+  })
+
+  it('keeps one revision snapshot per stored revision', async () => {
+    const service = createService()
+    const { caseId } = await service.open({ title: 'PPT generation' })
+    await service.update({
+      caseId,
+      summary: 'v2',
+      upsertBlocks: [{ id: 'flow', type: 'flow', nodes: [{ id: 'page', label: 'PPT Page' }], edges: [] }],
+    })
+    await service.update({
+      caseId,
+      upsertBlocks: [{ id: 'flow', type: 'flow', nodes: [{ id: 'page', label: 'PPT Page' }, { id: 'api', label: 'API' }], edges: [] }],
+    })
+
+    const history = await service.revisions(caseId)
+    expect(history.revisions.map((item) => item.revision)).toEqual([3, 2, 1])
+    expect(history.revisions[0]).toMatchObject({ summary: 'v2', blockCount: 1 })
+
+    const first = await service.revisionSnapshot(caseId, 1)
+    expect(first.blocks).toHaveLength(0)
+    const latest = await service.revisionSnapshot(caseId, 3)
+    expect(latest.blocks[0]).toMatchObject({ id: 'flow' })
+    expect(latest.blocks[0]?.type === 'flow' ? latest.blocks[0].nodes : []).toHaveLength(2)
+
+    await expect(service.revisionSnapshot(caseId, 99)).rejects.toMatchObject({ code: 'REVISION_NOT_FOUND' })
+    await expect(service.revisions('missing-case')).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+
+  it('reports a cheap revision probe for the viewer update notice', async () => {
+    const service = createService()
+    const { caseId } = await service.open({ title: 'PPT generation' })
+    await service.update({ caseId, summary: 'moved on' })
+    expect(await service.revision(caseId)).toMatchObject({ caseId, revision: 2, status: 'active' })
+  })
 })

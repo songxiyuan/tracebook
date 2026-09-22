@@ -53,7 +53,15 @@ Agent 读取已有 Tracebook Context 后继续调查
 - 集成验证：已在 DSH `0.1.5-rc.3` Web Profile 中完成插件安装、Domain Storage 持久化、同源 API、SPA 路由和 Artifact 读取验证。
 - 完整案例：可通过 `seedExampleCase` 幂等写入覆盖 7 类 Block 与 Screenshot/HTTP/Trace/Code 四类 Artifact 的 mock Case，用于开箱验证和演示。
 
-MVP 保持 Agent Tool 为唯一业务写入口；HTTP API 只读。可选 Thin Client Entry 和 `Ask about this` 仍属于后续版本。
+在此之上已补齐第 16.1 节与 V1.x/V2 中的关键交互：
+
+- DSH 原生入口：薄 Client Plugin 在会话标题栏注册 `Tracebook` 按钮，通过 Right Sidebar 打开 SPA 标签，右侧栏不可用时退化为同源新标签。
+- 当前 Case 联动：`/tracebook/?session=…` 解析当前 DSH Session 的关联 Case；多关联时先给选择列表。
+- `Ask about this`：Flow Node 与 Evidence 可携带上下文回到当前对话输入框（只填入草稿，不自动发送）。
+- 更新提示：详情页轮询 revision，提示新版本并在刷新时保留滚动位置与 Flow 选中项。
+- 历史与检索：Block 搜索、Artifact 类型筛选与内嵌预览、Revision 历史与 Block diff、Flow layout 切换。
+
+MVP 保持 Agent Tool 为唯一业务写入口；HTTP API 只读。交互补齐的验收细节见 [交互补齐说明](tracebook-pending-interactions.md)。
 
 ---
 
@@ -1364,25 +1372,15 @@ Agent tracebook_update
 页面更新
 ```
 
-## 16.1 后续可做：Ask About This
+## 16.1 Ask About This
 
-用户选择某个 Flow Node：
-
-```text
-slide-service
-```
-
-点击：
-
-```text
-Ask about this
-```
-
-形成 Context Envelope：
+已实现。用户选择某个 Flow Node 或 Evidence，点击 `Ask about this`，页面形成一个 Context Envelope：
 
 ```json
 {
   "caseId": "case-ppt",
+  "caseTitle": "PPT 生成功能",
+  "revision": 3,
   "blockId": "backend-flow",
   "selection": {
     "type": "node",
@@ -1392,9 +1390,23 @@ Ask about this
 }
 ```
 
-然后由 Thin Client Plugin 将其发送/填充到当前 DSH Conversation。
+然后由 Thin Client Plugin 把它插入当前 DSH Conversation 输入框：
 
-这属于 V2，不作为 MVP 阻塞项。
+```text
+Viewer (Vue, same-origin iframe)
+  → window.postMessage({ source: 'tracebook', type: 'ask', sessionId, envelope, text })
+  → Thin Client Plugin
+  → ctx.sessions.scope(sessionId) → ctx.conversation.input.for(actx)
+  → 追加到草稿（不覆盖、不发送）
+  → 回传 { type: 'ask-result', ok, reason? } 让 Viewer 如实提示结果
+```
+
+约束：
+
+- 只填入输入框，用户仍然按发送；取消不修改对话或 Case。
+- 页面只组织上下文，不执行调查。
+- 未嵌入 DSH 时退化为复制上下文到剪贴板。
+- 后续更新仍走 `tracebook_update`，提示词显式约束 `caseId` 与 `blockId`，避免重复 Case。
 
 ---
 
@@ -1410,6 +1422,19 @@ GET  /tracebook/api/cases/:id
 GET  /tracebook/api/cases/:id/blocks
 GET  /tracebook/api/artifacts/:id
 ```
+
+交互补齐新增的只读路由：
+
+```text
+GET  /tracebook/api/sessions/:sessionId/cases
+GET  /tracebook/api/cases/:id/revision
+GET  /tracebook/api/cases/:id/revisions
+GET  /tracebook/api/cases/:id/revisions/:revision
+```
+
+- `sessions/:sessionId/cases`：按既有 `sourceSessions` 与 `session_links` 解析当前 Session 的关联 Case，供 DSH 入口与 Viewer 使用。
+- `cases/:id/revision`：只返回 `revision` / `status` / `updatedAt`，供更新提示轮询。
+- `revisions` 与 `revisions/:revision`：读取历史与单个 revision 快照，供 Block diff 使用。
 
 如果后续允许页面人工编辑：
 
@@ -1918,19 +1943,24 @@ Agent：
 
 按真实需求再逐步增加：
 
-## V1.x
+## V1.x（已实现）
 
 - Case 搜索。
 - Block 搜索。
-- Artifact 类型增强。
-- Flow 多 Layout。
-- Flow diff。
-- 版本历史。
+- Artifact 类型筛选与内嵌预览。
+- Flow 多 Layout（TB / LR / BT / RL，按 block 记忆）。
+- Flow diff（通过 Block diff 呈现 nodes / edges 变化）。
+- 版本历史（`revisions` 表 + Block diff）。
 
 ## V2
 
-- `Ask about this`：从 Node / Evidence 直接回到 DSH Conversation。
-- Client Plugin 与 active Session 的深度联动。
+已实现：
+
+- `Ask about this`：从 Node / Evidence 直接回到 DSH Conversation 输入框。
+- Client Plugin 与 active Session 的联动：会话标题栏入口、按 Session 打开关联 Case。
+
+仍未实现（按第 23 节边界，等真实需求出现再说）：
+
 - Agent 自动判断是否更新 Tracebook。
 - 部分 Tool Result 自动转 Artifact。
 
