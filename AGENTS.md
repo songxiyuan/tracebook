@@ -1,0 +1,60 @@
+# Tracebook 项目约束
+
+本文件是本仓库内所有开发工作的强制约束。除非用户在当前任务中明确覆盖某条规则，否则所有开发者与 Agent 都必须遵守。
+
+## 1. 产品边界
+
+- Tracebook 是 DeepSeek Harness（DSH）上的工程调查结果组织插件，不是 Agent Runtime、探索引擎或自动根因分析系统。
+- 核心职责必须保持为：规范化调查结果、持久化 Case、管理 Artifact、展示结果、向后续 Agent 提供上下文。
+- Agent 决定调查内容；Tracebook 只定义、校验、存储和展示协议。
+- `CaseDocument` 是 Agent、Storage、HTTP API 与 Vue Viewer 之间的唯一核心协议。跨层新增数据结构前，必须先说明为什么现有 Block 无法表达。
+- Case 必须独立于 Session 存活；不得把 DSH Session 当作主数据存储。
+- 大体积原始内容必须进入 Artifact Store；`CaseDocument` 只保存结构化内容、摘要与 Artifact 引用。
+- MVP 不实现自动探索、自动监听全部 Tool Call、全局知识图谱或复杂实体消歧。
+
+## 2. 架构约束
+
+- DSH 相关 API 必须收敛在 adapter / plugin 边界，Core 不得直接依赖 DSH 实现细节。
+- Core 不得直接依赖 SQLite 或特定数据库 API，持久化必须通过 Storage 抽象。
+- Agent 写入以 `tracebook_open`、`tracebook_update`、`tracebook_context` 三个核心 Tool 为主；新增 Tool 必须有不可由现有 Tool 覆盖的明确理由。
+- Block 更新采用稳定 ID 的 upsert 语义，禁止要求调用方反复重写完整 Case。
+- Vue 页面优先通过同源 HTTP API 读取数据；未经设计评审，不得同时维护 HTTP API 与 Remote API 两套等价写路径。
+- 流程图由 Vue Flow 负责渲染与交互、ELK.js 负责布局，不得把二者职责混合。
+- 不 fork 或侵入式修改 DSH Web；集成应通过 Bundle、Host Plugin、静态页面或薄 Client Plugin 完成。
+
+## 3. 实现约束
+
+- 开始编码前先阅读 `README.md` 与 `doc/tracebook-dsh-plugin-design.md`，确认改动符合当前 MVP 范围。
+- 优先保持模块边界清晰，不为尚未出现的需求提前拆分大量 package 或引入复杂基础设施。
+- 所有公开协议、Tool Schema、HTTP API 与持久化结构必须具备明确类型和输入校验。
+- 新增或变更协议时，必须同步更新相关类型、校验、测试与文档。
+- 错误必须携带可定位的上下文；禁止静默吞错、无说明降级或用空值掩盖失败。
+- 禁止提交密钥、令牌、用户隐私数据、生产日志原文或其他敏感信息。
+- 未经用户明确要求，不得进行与当前任务无关的重构、依赖升级或格式化全仓库。
+
+## 4. 质量门槛
+
+- 每项行为变更必须有对应测试；修复缺陷时必须优先补充可复现问题的回归测试。
+- 提交前必须运行与改动相关的 lint、类型检查、单元测试和构建；若仓库尚未提供相应命令，应在交付说明中明确指出。
+- 测试失败时不得将工作描述为完成，也不得通过删除、跳过或弱化测试来制造通过结果。
+- UI 改动必须至少验证加载、空状态、错误状态和核心交互；涉及布局时还应检查常见视口。
+- 以最小、聚焦、可审查的改动完成任务，保持现有行为兼容；破坏性变更必须先获得用户确认。
+
+## 5. Git 与自动提交
+
+- 每次开发任务完成且验证通过后，Agent 必须自动创建一次 Git commit，无需再次询问。
+- commit 只包含当前任务产生的文件；不得夹带用户已有改动、未跟踪文件或其他 Agent 的无关修改。
+- 提交前必须检查 `git diff` 与 `git status`，确认提交范围准确且不包含敏感信息。
+- commit message 使用 Conventional Commits，格式为 `<type>(<scope>): <summary>`；常用类型包括 `feat`、`fix`、`docs`、`test`、`refactor`、`chore`。
+- 验证失败、需求未完成或仍存在阻塞项时不得自动提交；应先说明状态并继续修复，确实无法推进时再交还用户决策。
+- 不得自动执行 `git push`、改写历史、强制推送或 amend 用户已有提交，除非用户明确要求。
+- 完成后必须向用户报告 commit hash、验证结果和任何未纳入提交的工作区改动。
+
+## 6. 文档优先级
+
+发生冲突时按以下顺序处理：
+
+1. 用户在当前任务中的明确指令。
+2. 本文件中的项目约束。
+3. `doc/tracebook-dsh-plugin-design.md` 中的产品与架构设计。
+4. `README.md` 中的项目概览与开发说明。
