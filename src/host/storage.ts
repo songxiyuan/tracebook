@@ -33,7 +33,8 @@ export const tracebookDomainSpec = defineDomain({
 
 type TracebookDomain = Domain<typeof tracebookDomainSpec>
 
-const compoundKey = (caseId: string, itemId: string) => `${caseId}\u0000${itemId}`
+const compoundKey = (caseId: string, itemId: string) =>
+  Buffer.from(JSON.stringify([caseId, itemId])).toString('base64url')
 
 export class DshCaseRepository implements CaseRepository {
   private constructor(private readonly domain: TracebookDomain) {}

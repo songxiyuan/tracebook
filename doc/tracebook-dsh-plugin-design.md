@@ -42,7 +42,7 @@ Agent 读取已有 Tracebook Context 后继续调查
 
 > **随着用户持续追问而不断生长的一份工程调查文档。**
 
-## 实现状态（2026-09-22）
+## 实现状态（2026-09-23）
 
 本仓库已经完成本文第 22 节定义的 MVP：
 
@@ -50,6 +50,8 @@ Agent 读取已有 Tracebook Context 后继续调查
 - Host：DSH Domain Storage adapter、三个 Agent Tool、文件 Artifact Store、同源只读 API 与 Vue 静态资源路由。
 - Viewer：Case List、Case Detail、全部 Block Renderer、Table 筛选、Evidence/Gallery Artifact 访问、Vue Flow + ELK.js 自动布局与 Node Inspector。
 - 工程化：TypeScript 严格检查、Vitest 覆盖核心闭环、Vite/tsup 生产构建和 DSH Bundle manifest。
+- 集成验证：已在 DSH `0.1.5-rc.3` Web Profile 中完成插件安装、Domain Storage 持久化、同源 API、SPA 路由和 Artifact 读取验证。
+- 完整案例：可通过 `seedExampleCase` 幂等写入覆盖 7 类 Block 与 Screenshot/HTTP/Trace/Code 四类 Artifact 的 mock Case，用于开箱验证和演示。
 
 MVP 保持 Agent Tool 为唯一业务写入口；HTTP API 只读。可选 Thin Client Entry 和 `Ask about this` 仍属于后续版本。
 

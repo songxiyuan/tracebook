@@ -9,7 +9,9 @@ import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { TracebookError } from '../core/errors.js'
 import type { TracebookService } from '../core/service.js'
 
-const defaultWebRoot = fileURLToPath(new URL('../../dist/web/', import.meta.url))
+// tsup emits this module as dist/index.js and Vite emits the SPA beside it as
+// dist/web/. Resolve from the published runtime location, not the source tree.
+const defaultWebRoot = fileURLToPath(new URL('./web/', import.meta.url))
 
 function sendJson(response: ServerResponse, status: number, value: unknown) {
   const body = JSON.stringify(value)

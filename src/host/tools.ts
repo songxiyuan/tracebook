@@ -1,6 +1,12 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
-import type { TracebookService } from '../core/service.js'
+import type { OpenCaseInput, TracebookService, UpdateCaseInput } from '../core/service.js'
+
+type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
+
+function toJson(value: unknown): JsonValue {
+  return JSON.parse(JSON.stringify(value)) as JsonValue
+}
 
 const jsonOutput = {
   schema: { type: 'json' as const },
@@ -24,7 +30,7 @@ export function registerTools(ctx: Context, service: TracebookService) {
       },
       output: jsonOutput,
       async execute(args) {
-        return service.open(args)
+        return toJson(await service.open(args as OpenCaseInput))
       },
     })),
     ctx.tools.register(defineTool({
@@ -52,7 +58,7 @@ export function registerTools(ctx: Context, service: TracebookService) {
       },
       output: jsonOutput,
       async execute(args) {
-        return service.update(args)
+        return toJson(await service.update(args as unknown as UpdateCaseInput))
       },
     })),
     ctx.tools.register(defineTool({
@@ -66,7 +72,7 @@ export function registerTools(ctx: Context, service: TracebookService) {
       },
       output: jsonOutput,
       async execute(args) {
-        return service.context(args)
+        return toJson(await service.context(args))
       },
     })),
   ]

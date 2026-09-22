@@ -2,7 +2,7 @@
 
 Tracebook 是运行在 DeepSeek Harness（DSH）上的工程调查结果组织插件。它把 Agent 已经理解出的结果保存为可持续更新的结构化 Case，并提供 Artifact 管理、交互式 Viewer 和跨 Session 上下文复用。
 
-> 当前状态：MVP 已实现。Agent 负责探索，Tracebook 负责规范化、持久化、展示与复用。
+> 当前状态：MVP 已实现，并已在 DSH `0.1.5-rc.3` Web Profile 中完成真实运行验证。Agent 负责探索，Tracebook 负责规范化、持久化、展示与复用。
 
 ## MVP 能力
 
@@ -54,6 +54,7 @@ Bundle 默认插入一个 `tracebook` Host plugin。可在 Profile patch 中覆�
 | `artifactDirectory` | Artifact 文件目录，默认 `.tracebook/artifacts` |
 | `webDirectory` | 自定义已构建 Viewer 目录，默认使用包内 `dist/web` |
 | `metadataOnlyArtifacts` | 仅保存 Artifact 元数据，不写入 payload；主要用于受限部署和测试 |
+| `seedExampleCase` | 启动时幂等写入一个覆盖 7 类 Block 与 4 类 Artifact 的完整 mock Case |
 
 Storage backend 由 DSH `storage-domain` 路由决定，Tracebook 不直接依赖 SQLite。
 

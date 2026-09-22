@@ -6,6 +6,7 @@ import { FileArtifactStore } from './host/artifact-store.js'
 import { registerHttpRoutes } from './host/http.js'
 import { DshCaseRepository } from './host/storage.js'
 import { registerTools } from './host/tools.js'
+import { seedExampleCase } from './example.js'
 
 export * from './core/model.js'
 export * from './core/repository.js'
@@ -21,6 +22,7 @@ export interface Config {
   artifactDirectory?: string
   webDirectory?: string
   metadataOnlyArtifacts?: boolean
+  seedExampleCase?: boolean
 }
 
 export function apply(ctx: Context, config: Config = {}) {
@@ -30,6 +32,7 @@ export function apply(ctx: Context, config: Config = {}) {
       ? new MetadataOnlyArtifactStore()
       : new FileArtifactStore(resolve(config.artifactDirectory ?? '.tracebook/artifacts'))
     const service = new TracebookService(repository, artifactStore)
+    if (config.seedExampleCase) await seedExampleCase(service)
     const disposeTools = registerTools(ctx, service)
     const disposeHttp = registerHttpRoutes(ctx, service, config.webDirectory)
     return async () => {
