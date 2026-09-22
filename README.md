@@ -134,4 +134,4 @@ tests/             Core 与 Artifact Store 测试
 doc/               设计文档
 ```
 
-完整架构与产品边界见 [设计方案](doc/tracebook-dsh-plugin-design.md)。
+完整架构与产品边界见 [设计方案](doc/tracebook-dsh-plugin-design.md)，尚未完成的用户交互见 [未完成交互说明](doc/tracebook-pending-interactions.md)。
