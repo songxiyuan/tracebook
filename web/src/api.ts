@@ -91,3 +91,12 @@ export function artifactUrl(artifactId: string, caseId?: string) {
     ? `/tracebook/api/cases/${encodeURIComponent(caseId)}/artifacts/${encodeURIComponent(artifactId)}`
     : `/tracebook/api/artifacts/${encodeURIComponent(artifactId)}`
 }
+
+/**
+ * P3-5: same-origin SSE endpoint that pushes revision bumps for one case. The
+ * Viewer opens an EventSource here to replace revision polling, falling back to
+ * polling when the stream is unavailable.
+ */
+export function caseEventsUrl(caseId: string) {
+  return `/tracebook/api/cases/${encodeURIComponent(caseId)}/events`
+}

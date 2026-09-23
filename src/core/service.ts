@@ -65,6 +65,19 @@ const updateInputSchema = z.object({
 export type OpenCaseInput = z.input<typeof openInputSchema>
 export type UpdateCaseInput = z.input<typeof updateInputSchema>
 
+/**
+ * P3-5: emitted after any write that lands a new revision for a case. It carries
+ * only the identity and the new revision — never the document body — so a
+ * listener re-reads through the same HTTP read path rather than getting a second
+ * write channel.
+ */
+export interface CaseChangeEvent {
+  caseId: string
+  revision: number
+}
+
+export type CaseChangeListener = (event: CaseChangeEvent) => void
+
 export interface OpenCaseResult {
   caseId: string
   summary?: string
@@ -153,6 +166,26 @@ function compactBlock(block: Block, maxLength = 900): string {
           + `${observed ? ` [${observed}]` : ''}`
       }).join('; ')
       break
+    case 'sequence': {
+      // A stream is an open push, so it reads with a dashed arrow; sync/async
+      // share the solid arrow and let the parenthesised kind tell them apart.
+      // timingSource stays visible for the same evidence-first reason as `api`:
+      // an inferred duration must never be mistaken for a measured one.
+      const labels = new Map(block.participants.map((participant) => [participant.id, participant.label]))
+      content = block.messages.map((message) => {
+        const arrow = message.kind === 'stream' ? '-->' : '->'
+        const from = labels.get(message.from) ?? message.from
+        const to = labels.get(message.to) ?? message.to
+        const meta = [
+          message.kind,
+          message.status !== undefined ? String(message.status) : undefined,
+          message.durationMs !== undefined ? `${message.durationMs}ms` : undefined,
+          message.timingSource,
+        ].filter((part): part is string => part !== undefined)
+        return `${from}${arrow}${to}: ${message.label} (${meta.join(',')})`
+      }).join('; ')
+      break
+    }
   }
   return content.length > maxLength ? `${content.slice(0, maxLength)}…` : content
 }
@@ -246,6 +279,11 @@ function referenceWarnings(blocks: Block[], artifacts: Artifact[]): string[] {
           for (const ref of item.artifactRefs ?? []) missingArtifact(ref, `Timeline item "${item.title}"`)
         }
         break
+      case 'sequence':
+        for (const message of block.messages) {
+          for (const ref of message.artifactRefs ?? []) missingArtifact(ref, `Sequence message "${message.id}"`)
+        }
+        break
     }
   }
   return warnings
@@ -254,11 +292,45 @@ function referenceWarnings(blocks: Block[], artifacts: Artifact[]): string[] {
 export class TracebookService {
   private readonly queues = new Map<string, Promise<unknown>>()
 
+  /**
+   * P3-5: same-process change listeners. Deliberately a plain callback set, not
+   * a DSH import or a Node `events` emitter — Core must stay free of DSH and of
+   * transport concerns. The host layer subscribes here to push revision bumps
+   * over SSE. This is intra-process only: cross-process live updates are out of
+   * scope because the storage backend exposes no reload primitive (documented
+   * in storage.ts), so a listener only ever sees writes made through this
+   * instance.
+   */
+  private readonly changeListeners = new Set<CaseChangeListener>()
+
   constructor(
     private readonly repository: CaseRepository,
     private readonly artifactStore: ArtifactStore,
     private readonly now: () => Date = () => new Date(),
   ) {}
+
+  /**
+   * Subscribe to same-process case-change events; returns an unsubscribe
+   * function. Fires only on writes that produce a new revision, never on the
+   * no-op path.
+   */
+  onChange(listener: CaseChangeListener): () => void {
+    this.changeListeners.add(listener)
+    return () => {
+      this.changeListeners.delete(listener)
+    }
+  }
+
+  /** Notify every listener; a throwing listener must not derail the write or its peers. */
+  private notifyChange(event: CaseChangeEvent): void {
+    for (const listener of this.changeListeners) {
+      try {
+        listener(event)
+      } catch {
+        // Swallow: a subscriber's failure is its own; the write is already durable.
+      }
+    }
+  }
 
   listCases() {
     return this.repository.list()
@@ -351,6 +423,7 @@ export class TracebookService {
     })
     await this.repository.put(document)
     if (parsed.sourceSessionId) await this.repository.setActiveCase(parsed.sourceSessionId, document.id)
+    this.notifyChange({ caseId: document.id, revision: document.revision })
     return toOpenResult(document)
   }
 
@@ -363,6 +436,7 @@ export class TracebookService {
       updatedAt: this.now().toISOString(),
     }
     await this.repository.put(caseDocumentSchema.parse(linked))
+    this.notifyChange({ caseId: linked.id, revision: linked.revision })
   }
 
   async update(input: UpdateCaseInput): Promise<UpdateCaseResult> {
@@ -503,6 +577,8 @@ export class TracebookService {
       // P1-12: unlink orphaned files only after the revision is durable, and
       // never let a failed unlink fail the write.
       await this.removeArtifactFiles(artifactsToRemove)
+      // P3-5: the revision is durable; push the bump to same-process listeners.
+      this.notifyChange({ caseId, revision: updated.revision })
       return {
         caseId,
         revision: updated.revision,

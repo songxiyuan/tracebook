@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { getCase, getRevision, sessionCases, type SessionCases } from '../api'
+import { getCase, getRevision, sessionCases, caseEventsUrl, type SessionCases } from '../api'
 import BlockRenderer from '../components/blocks/BlockRenderer.vue'
 import ArtifactPanel from '../components/ArtifactPanel.vue'
 import RevisionHistory from '../components/RevisionHistory.vue'
@@ -31,6 +31,8 @@ const sessionLinkError = ref('')
 const pendingRevision = ref<number>()
 const refreshError = ref('')
 let pollTimer: number | undefined
+/** P3-5: the live-update stream; polling is only a fallback when it is unavailable. */
+let eventSource: EventSource | undefined
 let disposeAskResult: (() => void) | undefined
 
 type AskTarget = AskSelection & { blockId: string }
@@ -198,6 +200,46 @@ async function checkRevision() {
   }
 }
 
+/** Start the ~12s fallback poll if it is not already running. */
+function startPolling() {
+  if (pollTimer !== undefined) return
+  pollTimer = window.setInterval(() => { void checkRevision() }, 12000)
+}
+
+/**
+ * P3-5: prefer a same-process SSE push for revision changes, and degrade to the
+ * previous polling interval when EventSource is unavailable or the stream
+ * errors. A `revision` frame runs the exact same probe path the poll used, so
+ * the "update available" banner surfaces unchanged — only its trigger differs.
+ */
+function startRevisionWatch() {
+  stopRevisionWatch()
+  if (typeof EventSource === 'undefined') {
+    startPolling()
+    return
+  }
+  try {
+    const source = new EventSource(caseEventsUrl(caseId.value))
+    eventSource = source
+    source.addEventListener('revision', () => { void checkRevision() })
+    source.onerror = () => {
+      // The stream dropped (proxy, restart, or an environment without SSE);
+      // close it and fall back to polling rather than reconnect-looping.
+      source.close()
+      if (eventSource === source) eventSource = undefined
+      startPolling()
+    }
+  } catch {
+    startPolling()
+  }
+}
+
+/** Tear down both the stream and the fallback poll. */
+function stopRevisionWatch() {
+  if (pollTimer !== undefined) { window.clearInterval(pollTimer); pollTimer = undefined }
+  if (eventSource) { eventSource.close(); eventSource = undefined }
+}
+
 function openAsk(target: AskTarget) {
   askTarget.value = target
   askQuestion.value = ''
@@ -268,6 +310,8 @@ watch(caseId, () => {
   clearFlowSelection()
   void load()
   void loadSessionLink()
+  // The events URL is case-scoped, so re-point the watch when the id changes.
+  startRevisionWatch()
 })
 
 watch(() => route.query.session, (value) => {
@@ -293,13 +337,13 @@ onMounted(async () => {
   await loadSessionLink()
   await nextTick()
   observeSections()
-  pollTimer = window.setInterval(() => { void checkRevision() }, 12000)
+  startRevisionWatch()
   window.addEventListener('focus', checkRevision)
   globalThis.document.addEventListener('visibilitychange', checkRevision)
 })
 
 onBeforeUnmount(() => {
-  if (pollTimer !== undefined) window.clearInterval(pollTimer)
+  stopRevisionWatch()
   if (askTimeout !== undefined) window.clearTimeout(askTimeout)
   sectionObserver?.disconnect()
   disposeAskResult?.()

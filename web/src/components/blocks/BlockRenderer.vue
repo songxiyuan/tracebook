@@ -8,6 +8,7 @@ import TimelineBlock from './TimelineBlock.vue'
 import EvidenceBlock from './EvidenceBlock.vue'
 import GalleryBlock from './GalleryBlock.vue'
 import ApiBlock from './ApiBlock.vue'
+import SequenceBlock from './SequenceBlock.vue'
 
 const props = defineProps<{ block: Block; artifacts: Artifact[] }>()
 const emit = defineEmits<{ ask: [selection: { blockId: string; type: 'node' | 'evidence' | 'api'; id: string; label?: string }] }>()
@@ -22,6 +23,7 @@ const components: Record<Block['type'], Component> = {
   evidence: EvidenceBlock,
   gallery: GalleryBlock,
   api: ApiBlock,
+  sequence: SequenceBlock,
 }
 
 // A block whose type predates this viewer would otherwise render as an empty

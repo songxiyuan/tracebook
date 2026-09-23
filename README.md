@@ -12,14 +12,16 @@ Tracebook 是运行在 DeepSeek Harness（DSH）上的工程调查结果组织�
 - DSH Domain Storage：Core 只依赖 `CaseRepository`，DSH 细节集中在 Host adapter。
 - 文件 Artifact Store：原子写入 Screenshot、Log、HTTP、Trace、HAR 等原始资料，Case 仅保存元数据与引用。
 - 同源只读 API：Case List、Case Detail、Blocks、Artifact 内容、Session 关联与 Revision 历史。
-- Vue 3 Viewer：Case 列表/搜索、Block 搜索、Case 文档、八种 Block Renderer、API 接口详情（输入输出 / 耗时来源 / HAR 单次请求瀑布）、表格筛选、Artifact 类型筛选与内嵌预览、Gallery、Evidence。
+- Vue 3 Viewer：Case 列表/搜索、Block 搜索、Case 文档、九种 Block Renderer、API 接口详情（输入输出 / 耗时来源 / HAR 单次请求瀑布）、时序图（UML 风格 lifeline + 有序消息箭头）、表格筛选、Artifact 类型筛选与内嵌预览、Gallery、Evidence。
 - 视觉系统：白色页面 + Archify 风格的平面 + 1px 描边 + mono 前置 + 语义色，高密度信息布局（规范见设计文档 13.1）。
 - Vue Flow + ELK.js：流程渲染、自动布局、缩放、Minimap、Node Inspector 与 Layout 切换；Node Inspector 内嵌节点图片 Artifact 缩略图。
 - 更新提示：轮询 revision，提示新版本并在刷新时保留滚动位置与 Flow 选中项。
 - `Ask about this`：从 Flow Node / Evidence / API endpoint 携带上下文回到当前 DSH 对话输入框（只填入草稿，不自动发送）。
 - DSH 原生入口：会话标题栏 `Tracebook` 按钮，经 Right Sidebar 打开当前 Session 的 Case。
 
-支持的 Block：`markdown`、`facts`、`flow`、`table`、`timeline`、`evidence`、`gallery`、`api`。
+支持的 Block：`markdown`、`facts`、`flow`、`table`、`timeline`、`evidence`、`gallery`、`api`、`sequence`。
+
+`sequence` Block 承载按时间排序的交互（request → response → async-push）：`participants` 是 lifeline，`messages` 是有序箭头。消息 `kind` 区分 `sync`（实线）/ `async`（开口箭头）/ `stream`（虚线），并可选带 `status`、`durationMs` 与 `timingSource`（复用 `api` 的耗时来源枚举，让估算值始终有标注）。与 `flow`（拓扑图）分开，是因为 request→response→push 的顺序用图会丢失。
 
 `api` Block 承载接口清单与详情：每个 endpoint 可带 request（params / body）、responses（状态码 / 示例 / Artifact 引用）与 timing。协议对「数据从哪来」是强约束的：
 

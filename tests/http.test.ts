@@ -161,3 +161,41 @@ describe('case-scoped artifact route', () => {
     }
   })
 })
+
+describe('case event stream (P3-5)', () => {
+  it('serves an event-stream content-type and pushes a revision frame after an update', async () => {
+    const service = new TracebookService(new MemoryCaseRepository(), new MetadataOnlyArtifactStore())
+    const { caseId } = await service.open({ title: 'SSE stream' })
+    const { server, base } = await startServer(service)
+    const controller = new AbortController()
+    try {
+      const response = await fetch(`${base}/tracebook/api/cases/${caseId}/events`, {
+        headers: { accept: 'text/event-stream' },
+        signal: controller.signal,
+      })
+      expect(response.status).toBe(200)
+      expect(response.headers.get('content-type')).toBe('text/event-stream')
+      expect(response.headers.get('cache-control')).toBe('no-store')
+
+      const reader = response.body!.getReader()
+      const decoder = new TextDecoder()
+
+      // The subscription is registered synchronously as the stream opens, so a
+      // write made now is delivered as a `revision` frame.
+      await service.update({ caseId, upsertBlocks: [{ id: 'b1', type: 'markdown', content: 'live' }] })
+
+      let buffer = ''
+      while (!buffer.includes('event: revision')) {
+        const { value, done } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+      }
+      expect(buffer).toContain('event: revision')
+      expect(buffer).toContain('"revision":2')
+      await reader.cancel()
+    } finally {
+      controller.abort()
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  })
+})

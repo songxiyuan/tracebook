@@ -284,6 +284,74 @@ export const apiBlockSchema = blockBaseSchema.extend({
   }
 })
 
+export const sequenceParticipantSchema = z.object({
+  id: nonEmpty,
+  label: nonEmpty,
+  /** Free-form role hint, e.g. `page` / `gateway` / `service` / `SSE`, used only for display. */
+  kind: z.string().optional(),
+})
+
+export const sequenceMessageSchema = z.object({
+  id: nonEmpty,
+  /** Participant id the message leaves from. */
+  from: nonEmpty,
+  /** Participant id the message arrives at. */
+  to: nonEmpty,
+  /** The event name, e.g. `create` or `job.completed`. */
+  label: nonEmpty,
+  /**
+   * How the message travels: a `sync` call blocks for its reply, an `async`
+   * fire-and-forget does not, and a `stream` is an open server push (SSE / WS).
+   */
+  kind: z.enum(['sync', 'async', 'stream']).default('sync'),
+  status: z.number().int().min(100).max(599).optional(),
+  durationMs: z.number().nonnegative().optional(),
+  /** Where `durationMs` came from; reuses the endpoint timing provenance so an inferred number stays labelled. */
+  timingSource: z.enum(TIMING_SOURCES).optional(),
+  artifactRefs: z.array(nonEmpty).optional(),
+  note: z.string().optional(),
+})
+
+/**
+ * A time-ordered message exchange between participants.
+ *
+ * Kept separate from `flow` on purpose: a `flow` is a topology graph (who talks
+ * to whom), while a request → response → async-push interaction is a sequence
+ * in time, and forcing it into a graph loses the ordering that makes it
+ * readable. Participants are the lifelines; messages are the ordered arrows.
+ */
+export const sequenceBlockSchema = blockBaseSchema.extend({
+  type: z.literal('sequence'),
+  participants: z.array(sequenceParticipantSchema),
+  messages: z.array(sequenceMessageSchema),
+}).superRefine((block, ctx) => {
+  // P1-1: participant and message ids are the stable handles the Viewer looks
+  // up, so a duplicate would silently resolve to whichever one wins.
+  const seenParticipantIds = new Set<string>()
+  for (const participant of block.participants) {
+    if (seenParticipantIds.has(participant.id)) {
+      ctx.addIssue({ code: 'custom', message: `Duplicate sequence participant id ${participant.id}` })
+    }
+    seenParticipantIds.add(participant.id)
+  }
+  const seenMessageIds = new Set<string>()
+  for (const message of block.messages) {
+    if (seenMessageIds.has(message.id)) {
+      ctx.addIssue({ code: 'custom', message: `Duplicate sequence message id ${message.id}` })
+    }
+    seenMessageIds.add(message.id)
+  }
+  const participantIds = new Set(block.participants.map((participant) => participant.id))
+  for (const message of block.messages) {
+    if (!participantIds.has(message.from)) {
+      ctx.addIssue({ code: 'custom', message: `Message ${message.id} references missing from ${message.from}` })
+    }
+    if (!participantIds.has(message.to)) {
+      ctx.addIssue({ code: 'custom', message: `Message ${message.id} references missing to ${message.to}` })
+    }
+  }
+})
+
 export const blockSchema = z.discriminatedUnion('type', [
   markdownBlockSchema,
   factsBlockSchema,
@@ -293,6 +361,7 @@ export const blockSchema = z.discriminatedUnion('type', [
   evidenceBlockSchema,
   galleryBlockSchema,
   apiBlockSchema,
+  sequenceBlockSchema,
 ])
 
 /**
@@ -340,6 +409,7 @@ const HAND_WRITTEN_BLOCK_REFERENCE = [
   'evidence: id, title?, description?, artifactRefs?, items[{id,kind,title,summary?,artifactRef?}]',
   'gallery: id, title?, description?, artifactRefs?, items[{artifactRef,caption?}]',
   'api: id, title?, description?, artifactRefs?, endpoints[{id,method,path,summary?,responses?,timing?}]',
+  'sequence: id, title?, description?, artifactRefs?, participants[{id,label,kind?}], messages[{id,from,to,label,kind,status?,durationMs?,timingSource?,artifactRefs?,note?}]',
 ].join('\n')
 
 export const artifactSchema = z.object({
@@ -375,6 +445,7 @@ export type FlowBlock = z.infer<typeof flowBlockSchema>
 export type ApiBlock = z.infer<typeof apiBlockSchema>
 export type ApiEndpoint = z.infer<typeof apiEndpointSchema>
 export type ApiTiming = z.infer<typeof apiTimingSchema>
+export type SequenceBlock = z.infer<typeof sequenceBlockSchema>
 export type Artifact = z.infer<typeof artifactSchema>
 export type CaseDocument = z.infer<typeof caseDocumentSchema>
 

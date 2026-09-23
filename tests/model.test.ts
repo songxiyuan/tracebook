@@ -52,9 +52,61 @@ describe('block schema', () => {
 describe('block schema reference', () => {
   it('exposes a per-type field reference for tool discovery', () => {
     const reference = buildBlockSchemaReference()
-    for (const type of ['markdown', 'facts', 'flow', 'table', 'timeline', 'evidence', 'gallery', 'api']) {
+    for (const type of ['markdown', 'facts', 'flow', 'table', 'timeline', 'evidence', 'gallery', 'api', 'sequence']) {
       expect(reference).toContain(`${type}:`)
     }
+  })
+})
+
+describe('sequence block', () => {
+  function sequence(patch: Record<string, unknown> = {}) {
+    return {
+      id: 'seq', type: 'sequence',
+      participants: [
+        { id: 'page', label: 'PPT Page', kind: 'page' },
+        { id: 'svc', label: 'Slide Service', kind: 'service' },
+      ],
+      messages: [
+        { id: 'm1', from: 'page', to: 'svc', label: 'create', kind: 'sync', status: 200, durationMs: 120 },
+        { id: 'm2', from: 'svc', to: 'page', label: 'notice', kind: 'stream', timingSource: 'trace' },
+      ],
+      ...patch,
+    }
+  }
+
+  it('parses a valid sequence and defaults message kind to sync', () => {
+    const parsed = blockSchema.parse(sequence({
+      messages: [{ id: 'm1', from: 'page', to: 'svc', label: 'create' }],
+    }))
+    if (parsed.type !== 'sequence') throw new Error('expected a sequence block')
+    expect(parsed.messages[0]?.kind).toBe('sync')
+    expect(parsed.participants).toHaveLength(2)
+  })
+
+  it('rejects a message that references a participant that was never declared', () => {
+    const result = blockSchema.safeParse(sequence({
+      messages: [{ id: 'm1', from: 'page', to: 'ghost', label: 'create' }],
+    }))
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.issues[0]?.message).toContain('missing to ghost')
+  })
+
+  it('rejects duplicate participant ids within the block (P1-1)', () => {
+    const result = blockSchema.safeParse(sequence({
+      participants: [
+        { id: 'page', label: 'PPT Page' },
+        { id: 'page', label: 'Duplicate' },
+      ],
+    }))
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.issues.some((issue) => issue.message.includes('Duplicate sequence participant id'))).toBe(true)
+  })
+
+  it('rejects a message status outside the HTTP range', () => {
+    const result = blockSchema.safeParse(sequence({
+      messages: [{ id: 'm1', from: 'page', to: 'svc', label: 'create', status: 42 }],
+    }))
+    expect(result.success).toBe(false)
   })
 })
 

@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import type { KvUnit, KvUnitDescriptor, StorageBackend } from '@deepseek-ai/dsh-storage'
@@ -205,5 +205,37 @@ describe('DshCaseRepository over a real DomainFacility', () => {
     const again = await service.update({ caseId, upsertBlocks: [{ id: 'b1', type: 'markdown', content: 'same' }] })
     expect(again.revision).toBe(2)
     expect((await service.revisions(caseId)).revisions.map((item) => item.revision)).toEqual([2, 1])
+  })
+
+  it('skips a malformed block record and still returns the rest of the case (P1-8)', async () => {
+    const repository = await openRepository()
+    await repository.put(makeCase({
+      id: 'case-poison',
+      blocks: [
+        { id: 'good1', type: 'markdown', content: 'one' },
+        { id: 'bad', type: 'markdown', content: 'two' },
+        { id: 'good2', type: 'markdown', content: 'three' },
+      ],
+    }))
+
+    // Overwrite the 'bad' block record with an invalid payload (a markdown block
+    // missing its required `content`), exactly as a corrupted or legacy record
+    // on disk would look. The domain validates on open, not on write, so it
+    // lands as-is; the compound key mirrors the repository's own scheme.
+    const key = Buffer.from(JSON.stringify(['case-poison', 'bad'])).toString('base64url')
+    const domain = (repository as unknown as {
+      domain: { table(name: string): { put(key: string, value: unknown): Promise<void> } }
+    }).domain
+    await domain.table('blocks').put(key, { caseId: 'case-poison', block: { id: 'bad', type: 'markdown' } })
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const document = await repository.get('case-poison')
+      // The poisoned record drops out; the surrounding blocks still read.
+      expect(document?.blocks.map((block) => block.id)).toEqual(['good1', 'good2'])
+      expect(warn).toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
   })
 })

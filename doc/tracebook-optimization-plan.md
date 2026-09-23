@@ -300,3 +300,18 @@ npm pack --dry-run      # 无 node_modules 时报 vite: command not found
 
 1. `web` 与 `test-account` 的 `artifactDirectory` 不一致（前者绝对路径、后者默认相对 cwd），是 P0-4 与「两个 profile 各有一份数据」的共同根因；建议默认锚定 `DSH_HOME` 并在启动时对不一致告警。
 2. 本机 `~/.dsh/storages/tracebook-artifacts` 下还留着指向旧根的示例 artifact 文件，修 P0-4 时一并做一次性对账即可。
+
+---
+
+## 6. 实施进度（2026-09-24）
+
+四个批次已按序落地并各自通过 `npm run typecheck + npm test + npm run build`（最终 64 测试全绿），分四次提交。
+
+- **批次 A（正确性/安全）** — P0-4 artifact 缺失/越界→404、P0-5 CSP sandbox、P1-7 mimeType 提供、P0-8+P2-16 流程图首屏 fit 护栏与布局兜底，及 P2-1…P2-24 一批 Viewer 确定性修复。
+- **批次 B（写路径）** — P0-2/P0-3 三段式原子提交顺序（cases 记录为提交点）+ get() 以 order 为成员权威、P1-2 no-op 不涨 revision、P0-7 artifact 按 caseId 路由、P0-6 响应剥离绝对 path、P3-1 以真实 DomainFacility 覆盖的集成测试。
+- **批次 C（工具面）** — 在不新增工具的前提下扩展三个核心 Tool：P1-9 schema 字段参考内嵌描述 + deleteBlockIds/deleteArtifactIds + context blockId 读单块全文、P1-6 限额与 base64 校验、P1-10 受限 path 摄取（artifactIngestRoot）、P1-11 悬空引用 warnings、P1-1 唯一性校验、P1-12 文件 unlink。
+- **批次 D（表达力与实时）** — §2.5 新增 `sequence` block（模型+SVG 渲染+上下文摘要）、§2.4 FlowBlock 标签截断/自动方向/按 case 布局键/概览降级/缩放档位/kind 图例与过滤/悬停高亮/minimap 开关、P3-5 同进程 SSE 推送（core 用纯回调，host 出 `/cases/:id/events` 流，Viewer EventSource + 轮询兜底）、P1-8 storage 逐记录 safeParse + 迁移 seam。
+
+**已知范围外**：storage-domain 无 reload/reopen 原语，真正的跨进程实时可见（P0-1 的一部分）无法在当前依赖版本解决，已在代码注释标注；SSE 与跨进程可见性均限于同进程。双击折叠子树、ELK 泳道 wrapping 作为后续增强暂缓。
+
+**验证说明**：代码级验证（类型/测试/构建）已全绿；本机开发实例 web(3080) 的实机验证因该机 `~/.local/bin/dsh-web-start.sh` 启动脚本缺失（`up web` 回退到不存在的脚本）暂未跑通，属既有环境问题，与本次改动无关。

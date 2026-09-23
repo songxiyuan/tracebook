@@ -89,9 +89,66 @@ function publicCaseDocument(document: CaseDocument) {
   }
 }
 
+/**
+ * P3-5: Server-Sent Events stream for one case. Subscribes to the service's
+ * same-process change notifier and forwards only this case's revision bumps as
+ * `event: revision` frames. An opening comment plus a periodic heartbeat comment
+ * keep intermediary proxies from dropping an otherwise idle connection. The
+ * subscription and heartbeat are torn down when the client disconnects.
+ *
+ * This is a raw stream: it must not pass through the JSON helpers, which set a
+ * content-length and end the response.
+ */
+function handleCaseEvents(
+  request: IncomingMessage,
+  response: ServerResponse,
+  service: TracebookService,
+  caseId: string,
+) {
+  // A HEAD probe only wants the headers; keeping a stream open for it would hang.
+  if (request.method === 'HEAD') {
+    response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store' })
+    response.end()
+    return
+  }
+  response.writeHead(200, {
+    'content-type': 'text/event-stream',
+    'cache-control': 'no-store',
+    connection: 'keep-alive',
+    'x-content-type-options': 'nosniff',
+  })
+  // Open the stream immediately so the client's connection settles.
+  response.write(': tracebook event stream open\n\n')
+
+  const unsubscribe = service.onChange((event) => {
+    if (event.caseId !== caseId) return
+    response.write(`event: revision\ndata: ${JSON.stringify({ revision: event.revision })}\n\n`)
+  })
+  // A heartbeat comment (well under common 30-60s proxy idle timeouts) keeps the
+  // connection alive between real events.
+  const heartbeat = setInterval(() => {
+    response.write(': heartbeat\n\n')
+  }, 25000)
+
+  const cleanup = () => {
+    clearInterval(heartbeat)
+    unsubscribe()
+  }
+  request.on('close', cleanup)
+  request.on('aborted', cleanup)
+}
+
 async function handleApi(pathname: string, request: IncomingMessage, response: ServerResponse, service: TracebookService) {
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     response.writeHead(405, { allow: 'GET, HEAD' }).end()
+    return
+  }
+  // P3-5: same-origin live-update stream. Matched before the generic case route
+  // and handled with raw writes (never the JSON helpers), so the connection
+  // stays open. GET is allowed by the guard above, so the stream is never 405ed.
+  const eventsMatch = pathname.match(/^\/tracebook\/api\/cases\/([^/]+)\/events$/)
+  if (eventsMatch) {
+    handleCaseEvents(request, response, service, decodeURIComponent(eventsMatch[1]!))
     return
   }
   if (pathname === '/tracebook/api/cases') {

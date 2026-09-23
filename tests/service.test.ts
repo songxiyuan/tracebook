@@ -220,4 +220,51 @@ describe('TracebookService', () => {
     expect(result.warnings.some((warning) => warning.includes('missing-artifact'))).toBe(true)
     expect((await service.requireCase(caseId)).blocks).toHaveLength(1)
   })
+
+  it('compacts a sequence block into an ordered arrow summary that keeps timing provenance', async () => {
+    const service = createService()
+    const { caseId } = await service.open({ title: 'Async interaction' })
+    await service.update({
+      caseId,
+      upsertBlocks: [{
+        id: 'seq', type: 'sequence',
+        participants: [
+          { id: 'page', label: 'p50', kind: 'page' },
+          { id: 'svc', label: 'svc', kind: 'service' },
+        ],
+        messages: [
+          { id: 'm1', from: 'page', to: 'svc', label: 'create', kind: 'sync', status: 200, durationMs: 120 },
+          { id: 'm2', from: 'svc', to: 'page', label: 'notice', kind: 'stream' },
+        ],
+      }],
+    })
+    const result = await service.context({ caseId })
+    // Labels are resolved, the stream reads with a dashed arrow, and the sync
+    // meta keeps its status and duration inline.
+    expect(result.context).toContain('p50->svc: create (sync,200,120ms)')
+    expect(result.context).toContain('svc-->p50: notice (stream)')
+  })
+
+  it('fires onChange on a real update and not on a no-op (P3-5)', async () => {
+    const service = createService()
+    const events: Array<{ caseId: string; revision: number }> = []
+    const unsubscribe = service.onChange((event) => { events.push(event) })
+
+    // Creating a case is a change.
+    const { caseId } = await service.open({ title: 'Live updates' })
+    expect(events).toEqual([{ caseId, revision: 1 }])
+
+    // A content edit bumps the revision and fires once.
+    await service.update({ caseId, upsertBlocks: [{ id: 'b1', type: 'markdown', content: 'first' }] })
+    expect(events).toEqual([{ caseId, revision: 1 }, { caseId, revision: 2 }])
+
+    // A byte-identical re-send is a no-op: no new revision, no new event.
+    await service.update({ caseId, upsertBlocks: [{ id: 'b1', type: 'markdown', content: 'first' }] })
+    expect(events).toEqual([{ caseId, revision: 1 }, { caseId, revision: 2 }])
+
+    // After unsubscribing, further writes are not delivered.
+    unsubscribe()
+    await service.update({ caseId, upsertBlocks: [{ id: 'b1', type: 'markdown', content: 'second' }] })
+    expect(events).toEqual([{ caseId, revision: 1 }, { caseId, revision: 2 }])
+  })
 })
