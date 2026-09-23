@@ -36,11 +36,14 @@ Tracebook 是运行在 DeepSeek Harness（DSH）上的工程调查结果组织�
 要求 Node.js 22 或更高版本。
 
 ```bash
-npm install --legacy-peer-deps
+npm ci
 npm run verify
 ```
 
-DSH 的能力包声明为宿主 peer dependencies；`--legacy-peer-deps` 可避免 npm 在插件仓库中重复安装整套 Agent Runtime。`npm install` 会通过 `prepare` 钩子自动构建 `dist/`。
+DSH 的能力包对外声明为宿主 peer dependencies；本地 link 开发时，Node 会优先从
+Tracebook 自己的 `node_modules` 解析，因此 lockfile 同时固定了与 DSH `0.1.5-rc.3`
+匹配的完整 peer graph。不要使用 `--legacy-peer-deps`，否则会跳过这些运行时依赖并导致
+插件启动失败。`npm ci` 会通过 `prepare` 钩子自动构建 `dist/`。
 
 本地安装到 DSH Web Profile：
 

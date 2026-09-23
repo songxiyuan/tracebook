@@ -30,7 +30,7 @@ git clone https://github.com/songxiyuan/tracebook.git
 cd tracebook
 
 # 安装依赖，并自动构建 dist/index.js、dist/client.js、dist/web/
-npm install --legacy-peer-deps
+npm ci
 
 # 装进 web profile（用绝对路径）
 dsh plugin --profile web add "$(pwd)"
@@ -41,13 +41,13 @@ dsh web
 
 然后打开 `http://127.0.0.1:<dsh-port>/tracebook/`，或点会话标题栏的 `Tracebook` 按钮。
 
-### 为什么要 `--legacy-peer-deps`
+### 为什么不能用 `--legacy-peer-deps`
 
-DSH 能力包（`@deepseek-ai/cordis`、`dsh-host-webserver`、`dsh-storage-domain`、`dsh-tools`、`dsh-session` 等）在本仓库声明为 **peerDependencies**：运行时由宿主提供，插件仓库不应重复安装整套 Agent Runtime。不加这个 flag，npm 会尝试解析这些 peer 并可能直接报 `ERESOLVE`。
+DSH 能力包（`@deepseek-ai/cordis`、`dsh-host-webserver`、`dsh-storage-domain`、`dsh-tools`、`dsh-session` 等）对外声明为 **peerDependencies**，发布包运行时由宿主提供。但 link 安装会保留源码仓库的真实路径，Node 会优先使用该目录自己的 `node_modules`；若用 `--legacy-peer-deps` 跳过传递 peer，直接开发依赖会遮蔽宿主包，并在启动时出现 `ERR_MODULE_NOT_FOUND`。仓库 lockfile 因此固定了与 DSH `0.1.5-rc.3` 对齐的完整 peer graph，link 开发与构建统一使用 `npm ci`。
 
-### `npm install` 为什么就够了
+### `npm ci` 为什么就够了
 
-`package.json` 里有 `"prepare": "npm run build"`。在包根目录执行 `npm install` 时 npm 会自动运行它，也就是 `build:web → tsup → build:client`，产出：
+`package.json` 里有 `"prepare": "npm run build"`。在包根目录执行 `npm ci` 时 npm 会自动运行它，也就是 `build:web → tsup → build:client`，产出：
 
 ```text
 dist/index.js        宿主插件（含 HTTP 路由与三个 Agent Tool）
@@ -85,7 +85,7 @@ npm run verify      # typecheck + vitest + 完整构建
 ```bash
 # ① 有源码的机器：构建并打包
 cd tracebook
-npm install --legacy-peer-deps
+npm ci
 npm pack                      # → dsh-tracebook-0.1.0.tgz
 
 # ② 拷贝到目标机器
@@ -193,7 +193,7 @@ Case 主数据走 DSH `storage-domain` 路由，Tracebook 不直接依赖 SQLite
 
 | 安装方式 | 升级步骤 |
 | --- | --- |
-| 方式 A（link） | `git pull && npm install --legacy-peer-deps` |
+| 方式 A（link） | `git pull && npm ci` |
 | 方式 B（tgz） | 重新 `npm pack`，`dsh plugin --profile web add <新 tgz>` |
 
 改动生效范围：
@@ -235,7 +235,7 @@ dsh plugin --profile web remove dsh-tracebook
 
 | 现象 | 原因 | 处理 |
 | --- | --- | --- |
-| `npm install` 报 `ERESOLVE` | 漏了 `--legacy-peer-deps` | 加 flag 重跑 |
+| 启动时报 DSH peer 包 `ERR_MODULE_NOT_FOUND` | 使用了 `--legacy-peer-deps`，本地 link 的依赖树不完整 | 删除 `node_modules` 后运行 `npm ci` |
 | `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` | git 源的 `prepare` 被拦截 | 改用方式 A / B；或按第 4 节填带 commit 的键 |
 | `dsh: pnpm failed in profile directory …`，`dump-config` 里没有 tracebook | pnpm 因被拦截的构建脚本非零退出，bundle 未注册 | 按第 2 节第 ④ 步设置 `allowBuilds` → 重跑 `add` |
 | `dump-config` 有 tracebook 行，但页面 404 | `dist/web/` 缺失 | 在仓库里 `npm run build:web`（或完整 `npm run build`） |
