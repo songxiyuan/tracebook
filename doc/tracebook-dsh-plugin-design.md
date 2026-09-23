@@ -774,13 +774,16 @@ other
       "path": "/api/slides/jobs/:id",
       "service": "slide-service",
       "summary": "查询任务状态与进度",
+      "expectedMs": 100,
+      "expectedRef": "x-expected-response-time-ms",
       "request": {
         "params": [
-          { "name": "id", "in": "path", "type": "string", "required": true, "example": "job_01" }
+          { "name": "id", "in": "path", "type": "string", "required": true, "example": "job_01", "source": "observed" }
         ],
         "body": {
           "contentType": "application/json",
           "example": { "topic": "Q3 product strategy" },
+          "source": "spec",
           "schemaArtifactRef": "schema-001"
         }
       },
@@ -790,14 +793,17 @@ other
           "description": "任务状态",
           "contentType": "application/json",
           "example": { "job_id": "job_01", "status": "processing", "progress": 0.4 },
+          "source": "observed",
           "artifactRef": "artifact-http-001"
         }
       ],
       "timing": {
         "source": "log",
         "sampleSize": 240,
+        "errorCount": 5,
         "p50": 17,
         "p95": 46,
+        "window": { "from": "2026-09-23T01:00:00.000Z", "to": "2026-09-23T02:00:00.000Z" },
         "measuredAt": "2026-09-23T02:00:00.000Z",
         "note": "由网关访问日志聚合，样本数 240。",
         "artifactRef": "artifact-log-001"
@@ -815,8 +821,21 @@ other
 - `path` 保留 `:id` 这类占位符，不要求是可调用的真实 URL。
 - `request` / `responses` / `timing` 全部可省略：调查常常只知道接口存在，不应强迫 Agent 编造细节。
 - `responses[].artifactRef` 指向 HTTP Artifact，`request.body.schemaArtifactRef` 指向 Schema Artifact；大体积原文仍然只进 Artifact Store（见第 8 节），Case 只存引用。
+- `expectedMs` / `expectedRef` 放在 endpoint 上而不是 `timing` 里：**声明耗时是契约，不是观测值**。endpoint 只承载「目标 / SLO」，`timing` 只承载「实测」。
 
-### 7.8.1 Timing 必须带来源
+### 7.8.1 示例必须带来源
+
+只要写了 `example`，同级的 `source` 就是必填：
+
+```text
+observed  实际抓到的请求 / 响应样本（最可信）
+spec      OpenAPI 等接口文档里写的示例
+inferred  Agent 构造的示意值，不代表真实返回
+```
+
+理由与 Timing 完全一致：**一个编造的示例和一个真实抓到的响应，在 Viewer 里不能长得一样。** `request.params[].example`、`request.body.example`、`responses[].example` 三处都适用。
+
+### 7.8.2 Timing 必须带来源
 
 `timing.source` 是必填枚举：
 
@@ -835,11 +854,14 @@ estimated  Agent 推断，不是测量值
 3. `trace` / `har` / `log` 建议同时给 `artifactRef`，让每个数字都能点回原始证据。
 4. `timing` 至少要有一个 `samples` / `p50` / `p95` / `p99` / `max` / `breakdown`，空对象视为无效。
 5. `breakdown` 是四个面向读者的相位，与 HAR `timings` 的对应关系是 `dns` → `dns`、`connect` → `connect`、`ttfb` → `wait`、`download` → `receive`；HAR 的 `ssl` 是 `connect` 的子区间（为兼容 1.1 而并入），因此不单独成段，`blocked` / `send` 暂不建模。单位统一 ms。
+6. **分位数不允许单独出现。** `sampleSize` 是分位数的样本基数，`errorCount` 是其中失败数，`errorCount ≤ sampleSize` 由 Schema 强制。给了 `sampleSize` 时同时给 `window` 界定聚合区间——没有窗口的速率无法解读。
+7. `errorRate` **不单独存储**，由 `errorCount / sampleSize` 推导，避免两个字段漂移。
 
-### 7.8.2 Viewer
+### 7.8.3 Viewer
 
-- 列表按 endpoint 展示 `METHOD path`、Service、输入摘要、输出摘要与主耗时（优先 p95，其次 p50 / max / 最后样本），并显示来源标签。
-- 行内展开 request 参数与 body、各 response 的状态与示例、timing 分位数与相位条，以及 Artifact / Related Block 链接。
+- 列表按 endpoint 展示 `METHOD path`、Service、输入摘要、输出摘要与主耗时（优先 p95，其次 p50 / max / 最后样本），并显示来源标签与错误率。
+- 行内展开 request 参数与 body、各 response 的状态与示例（均带来源标签）、timing 的 RED 三元组（requests / errors / 分位数）与相位条，以及 Artifact / Related Block 链接。
+- **只有 `expectedMs` 声明过的阈值才会给数字上色**（超出为错误色）；Viewer 不发明阈值。
 - 每个 endpoint 提供 `Ask about this`，与 Flow Node / Evidence 一致。
 
 ---

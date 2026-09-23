@@ -28,8 +28,10 @@ describe('example case', () => {
     const { context } = await service.context({ caseId })
 
     expect(context).toContain('POST /api/slides/generate')
-    expect(context).toContain('trace p50=85ms')
-    expect(context).toContain('log p95=46ms n=240')
+    expect(context).toContain('[slo=200ms]')
+    expect(context).toContain('trace p95=138ms n=12 err=0.0%')
+    // Rate and errors travel with the percentile, so latency is never read alone.
+    expect(context).toContain('log p95=46ms n=240 err=2.1%')
     // Inferred timing must stay labelled in Context, never blurred into a measurement.
     expect(context).toContain('[estimated p50=30ms]')
   })

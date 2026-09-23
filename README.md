@@ -21,7 +21,14 @@ Tracebook 是运行在 DeepSeek Harness（DSH）上的工程调查结果组织�
 
 支持的 Block：`markdown`、`facts`、`flow`、`table`、`timeline`、`evidence`、`gallery`、`api`。
 
-`api` Block 承载接口清单与详情：每个 endpoint 可带 request（params / body）、responses（状态码 / 示例 / Artifact 引用）与 timing。`timing.source` 为必填（`trace` / `har` / `log` / `metrics` / `estimated`），Viewer 会把实测与「估算」分开呈现，避免把推断值当成实测延迟。协议细节见设计文档 7.8 节。
+`api` Block 承载接口清单与详情：每个 endpoint 可带 request（params / body）、responses（状态码 / 示例 / Artifact 引用）与 timing。协议对「数据从哪来」是强约束的：
+
+- `timing.source` 必填（`trace` / `har` / `log` / `metrics` / `estimated`），Viewer 把实测与「估算」分开呈现。
+- 任何 `example` 必须带 `source`（`observed` / `spec` / `inferred`），编造的示意值和真实抓到的响应不会长得一样。
+- 分位数必须带 `sampleSize` 与 `errorCount`（RED），错误率由二者推导；`window` 界定聚合区间。
+- 声明耗时（SLO）用 endpoint 上的 `expectedMs` / `expectedRef`，与实测分开；只有声明过的阈值才会给数字上色。
+
+协议细节见设计文档 7.8 节。
 
 ## 安装与构建
 

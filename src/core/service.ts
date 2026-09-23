@@ -118,6 +118,7 @@ function compactBlock(block: Block, maxLength = 900): string {
         return `${endpoint.method} ${endpoint.path}${endpoint.service ? ` (${endpoint.service})` : ''}`
           + `${endpoint.summary ? `: ${endpoint.summary}` : ''}`
           + `${response ? ` -> ${response.status}` : ''}`
+          + `${endpoint.expectedMs !== undefined ? ` [slo=${endpoint.expectedMs}ms]` : ''}`
           + `${observed ? ` [${observed}]` : ''}`
       }).join('; ')
       break
@@ -126,8 +127,11 @@ function compactBlock(block: Block, maxLength = 900): string {
 }
 
 /**
- * One-line timing summary for Context reads. The source is kept in the text so
- * a follow-up Agent never reuses an inferred number as if it were measured.
+ * One-line timing summary for Context reads.
+ *
+ * The source stays in the text so a follow-up Agent never reuses an inferred
+ * number as if it were measured, and the error rate rides with the percentile
+ * so a latency figure is never read without its failure context.
  */
 function timingHeadline(timing: ApiTiming | undefined): string | undefined {
   if (!timing) return undefined
@@ -135,8 +139,16 @@ function timingHeadline(timing: ApiTiming | undefined): string | undefined {
     : timing.p50 !== undefined ? `p50=${timing.p50}ms`
       : timing.max !== undefined ? `max=${timing.max}ms`
         : undefined
-  if (!primary) return timing.source
-  return `${timing.source} ${primary}${timing.sampleSize ? ` n=${timing.sampleSize}` : ''}`
+  const sample = timing.sampleSize !== undefined ? ` n=${timing.sampleSize}` : ''
+  const errors = timing.errorCount !== undefined && timing.sampleSize !== undefined
+    ? ` err=${errorRatePercent(timing.errorCount, timing.sampleSize)}%`
+    : ''
+  if (!primary) return `${timing.source}${sample}${errors}`
+  return `${timing.source} ${primary}${sample}${errors}`
+}
+
+function errorRatePercent(errorCount: number, sampleSize: number): string {
+  return ((errorCount / sampleSize) * 100).toFixed(1)
 }
 
 export class TracebookService {

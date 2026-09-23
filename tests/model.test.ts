@@ -71,4 +71,64 @@ describe('api block', () => {
     })
     expect(result.success).toBe(true)
   })
+
+  it('rejects an example that does not say where it came from', () => {
+    const body = blockSchema.safeParse({
+      id: 'api', type: 'api',
+      endpoints: [endpoint({ request: { body: { contentType: 'application/json', example: { topic: 'x' } } } })],
+    })
+    expect(body.success).toBe(false)
+
+    const response = blockSchema.safeParse({
+      id: 'api', type: 'api',
+      endpoints: [endpoint({ responses: [{ status: 200, example: { job_id: 'j1' } }] })],
+    })
+    expect(response.success).toBe(false)
+
+    const sourced = blockSchema.safeParse({
+      id: 'api', type: 'api',
+      endpoints: [endpoint({
+        request: { body: { contentType: 'application/json', example: { topic: 'x' }, source: 'observed' } },
+        responses: [{ status: 200, example: { job_id: 'j1' }, source: 'inferred' }],
+      })],
+    })
+    expect(sourced.success).toBe(true)
+  })
+
+  it('keeps the derived error rate consistent by rejecting errorCount above sampleSize', () => {
+    const impossible = blockSchema.safeParse({
+      id: 'api', type: 'api',
+      endpoints: [endpoint({ timing: { source: 'log', sampleSize: 10, errorCount: 11, p95: 46 } })],
+    })
+    expect(impossible.success).toBe(false)
+
+    const consistent = blockSchema.safeParse({
+      id: 'api', type: 'api',
+      endpoints: [endpoint({ timing: { source: 'log', sampleSize: 10, errorCount: 2, p95: 46 } })],
+    })
+    expect(consistent.success).toBe(true)
+  })
+
+  it('keeps a declared target on the endpoint, separate from an observation', () => {
+    const declaredOnly = blockSchema.safeParse({
+      id: 'api', type: 'api',
+      endpoints: [endpoint({ expectedMs: 200, expectedRef: 'x-expected-response-time-ms' })],
+    })
+    expect(declaredOnly.success).toBe(true)
+
+    const parsed = blockSchema.parse({
+      id: 'api', type: 'api',
+      endpoints: [endpoint({
+        expectedMs: 200,
+        timing: { source: 'log', sampleSize: 10, p95: 460 },
+      })],
+    })
+    if (parsed.type !== 'api') throw new Error('expected an api block')
+    // A declared budget alone never satisfies the "has an observation" rule.
+    expect(parsed.endpoints[0]?.expectedMs).toBe(200)
+    expect(blockSchema.safeParse({
+      id: 'api', type: 'api',
+      endpoints: [endpoint({ expectedMs: 200 })],
+    }).success).toBe(true)
+  })
 })

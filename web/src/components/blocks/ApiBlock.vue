@@ -17,12 +17,19 @@ const matches = computed(() => {
   return props.block.endpoints.filter((endpoint) => JSON.stringify(endpoint).toLowerCase().includes(needle))
 })
 
-const rows = computed(() => matches.value.map((endpoint) => ({
-  endpoint,
-  lead: leadTiming(endpoint),
-  breakdown: endpoint.timing ? breakdownSegments(endpoint.timing) : undefined,
-  aggregates: endpoint.timing ? timingAggregates(endpoint.timing) : [],
-})))
+const rows = computed(() => matches.value.map((endpoint) => {
+  const lead = leadTiming(endpoint)
+  return {
+    endpoint,
+    lead,
+    breakdown: endpoint.timing ? breakdownSegments(endpoint.timing) : undefined,
+    aggregates: endpoint.timing ? timingAggregates(endpoint.timing) : [],
+    // Only a threshold someone actually declared may colour the number.
+    overBudget: lead !== undefined
+      && endpoint.expectedMs !== undefined
+      && lead.value > endpoint.expectedMs,
+  }
+}))
 
 function toggle(id: string) {
   openId.value = openId.value === id ? '' : id
@@ -88,6 +95,35 @@ function sourceLabel(timing: ApiTiming): string {
 /** Only a real observation may read as measured; inference is labelled everywhere it appears. */
 function isEstimated(timing: ApiTiming): boolean {
   return timing.source === 'estimated'
+}
+
+const EXAMPLE_SOURCE_LABELS: Record<'observed' | 'spec' | 'inferred', string> = {
+  observed: '实测',
+  spec: 'Spec',
+  inferred: '示意',
+}
+
+/**
+ * An example without a source is rejected by the schema, so an invented
+ * illustration and a captured response never render identically.
+ */
+function exampleSourceLabel(source: 'observed' | 'spec' | 'inferred' | undefined): string {
+  return source ? EXAMPLE_SOURCE_LABELS[source] : EXAMPLE_SOURCE_LABELS.inferred
+}
+
+/** CSS class form of the source; the label stays in the template text. */
+function exampleSourceClass(source: 'observed' | 'spec' | 'inferred' | undefined): string {
+  return `source-${source ?? 'inferred'}`
+}
+
+/** Error rate is derived from the two counts, never stored twice and allowed to drift. */
+function errorRate(timing: ApiTiming): string | undefined {
+  if (timing.errorCount === undefined || timing.sampleSize === undefined) return undefined
+  return `${((timing.errorCount / timing.sampleSize) * 100).toFixed(1)}%`
+}
+
+function formatWindow(window: { from: string; to: string }): string {
+  return `${window.from} → ${window.to}`
 }
 
 function statusKind(status: number): string {
@@ -159,12 +195,18 @@ function artifactName(id: string): string {
             <td class="api-dim">{{ responseSummary(row.endpoint) || '—' }}</td>
             <td class="api-timing-cell">
               <template v-if="row.endpoint.timing">
-                <span class="api-timing-value" :class="{ estimated: isEstimated(row.endpoint.timing) }">
+                <span
+                  class="api-timing-value"
+                  :class="{ estimated: isEstimated(row.endpoint.timing), over: row.overBudget }"
+                >
                   {{ row.lead ? `${row.lead.label} ${formatMs(row.lead.value)}` : '—' }}
                 </span>
                 <span class="api-timing-source" :class="{ estimated: isEstimated(row.endpoint.timing) }">
                   {{ sourceLabel(row.endpoint.timing) }}
                 </span>
+                <small v-if="errorRate(row.endpoint.timing)" class="api-error-rate">
+                  err {{ errorRate(row.endpoint.timing) }}
+                </small>
               </template>
               <span v-else class="api-dim">—</span>
             </td>
@@ -176,18 +218,24 @@ function artifactName(id: string): string {
                   <section class="api-detail-section">
                     <p class="api-detail-label">Request</p>
                     <table v-if="row.endpoint.request?.params?.length" class="api-params">
-                      <thead><tr><th>Name</th><th>In</th><th>Type</th><th>Example</th></tr></thead>
+                      <thead><tr><th>Name</th><th>In</th><th>Type</th><th>Example</th><th>Source</th></tr></thead>
                       <tbody>
                         <tr v-for="param in row.endpoint.request.params" :key="`${param.in}-${param.name}`">
                           <td>{{ param.name }}<span v-if="param.required" class="api-required">*</span></td>
                           <td class="api-dim">{{ param.in }}</td>
                           <td class="api-dim">{{ param.type || '—' }}</td>
                           <td class="api-dim">{{ inline(param.example) || '—' }}</td>
+                          <td class="api-dim">{{ exampleSourceLabel(param.source) }}</td>
                         </tr>
                       </tbody>
                     </table>
                     <template v-if="row.endpoint.request?.body">
-                      <p class="api-detail-label">{{ row.endpoint.request.body.contentType || 'Body' }}</p>
+                      <p class="api-detail-label">
+                        {{ row.endpoint.request.body.contentType || 'Body' }}
+                        <span class="api-example-source" :class="exampleSourceClass(row.endpoint.request.body.source)">
+                          {{ exampleSourceLabel(row.endpoint.request.body.source) }}
+                        </span>
+                      </p>
                       <pre v-if="row.endpoint.request.body.example !== undefined">{{ pretty(row.endpoint.request.body.example) }}</pre>
                       <a
                         v-if="row.endpoint.request.body.schemaArtifactRef"
@@ -207,6 +255,11 @@ function artifactName(id: string): string {
                         <span class="api-status" :class="statusKind(response.status)">{{ response.status }}</span>
                         <span v-if="response.description">{{ response.description }}</span>
                         <span v-if="response.contentType" class="api-dim">{{ response.contentType }}</span>
+                        <span
+                          v-if="response.example !== undefined"
+                          class="api-example-source"
+                          :class="exampleSourceClass(response.source)"
+                        >{{ exampleSourceLabel(response.source) }}</span>
                       </div>
                       <pre v-if="response.example !== undefined">{{ pretty(response.example) }}</pre>
                       <a v-if="response.artifactRef" :href="artifactUrl(response.artifactRef)" target="_blank">
@@ -226,9 +279,18 @@ function artifactName(id: string): string {
                     <span v-for="aggregate in row.aggregates" :key="aggregate.label" class="api-timing-agg">
                       <small>{{ aggregate.label }}</small><strong>{{ formatMs(aggregate.value) }}</strong>
                     </span>
-                    <span v-if="row.endpoint.timing.sampleSize" class="api-dim">n={{ row.endpoint.timing.sampleSize }}</span>
+                    <span v-if="row.endpoint.timing.sampleSize" class="api-timing-agg">
+                      <small>requests</small><strong>{{ row.endpoint.timing.sampleSize }}</strong>
+                    </span>
+                    <span v-if="errorRate(row.endpoint.timing)" class="api-timing-agg">
+                      <small>errors</small>
+                      <strong>{{ row.endpoint.timing.errorCount }} · {{ errorRate(row.endpoint.timing) }}</strong>
+                    </span>
                     <span v-if="row.endpoint.timing.measuredAt" class="api-dim">{{ row.endpoint.timing.measuredAt }}</span>
                   </div>
+                  <p v-if="row.endpoint.timing.window" class="api-timing-note">
+                    Window: {{ formatWindow(row.endpoint.timing.window) }}
+                  </p>
                   <div v-if="row.breakdown?.parts.length" class="api-waterfall">
                     <span
                       v-for="part in row.breakdown.parts"
@@ -244,6 +306,12 @@ function artifactName(id: string): string {
                     {{ artifactName(row.endpoint.timing.artifactRef) }} ↗
                   </a>
                 </section>
+
+                <p v-if="row.endpoint.expectedMs !== undefined" class="api-slo" :class="{ over: row.overBudget }">
+                  声明耗时 SLO ≤ {{ formatMs(row.endpoint.expectedMs) }}
+                  <span v-if="row.endpoint.expectedRef" class="api-dim">（{{ row.endpoint.expectedRef }}）</span>
+                  <template v-if="row.overBudget"> · 超出</template>
+                </p>
 
                 <footer class="api-detail-foot">
                   <div v-if="row.endpoint.artifactRefs?.length" class="inspector-links">

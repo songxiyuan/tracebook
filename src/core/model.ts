@@ -106,6 +106,21 @@ export const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'O
 export const TIMING_SOURCES = ['trace', 'har', 'log', 'metrics', 'estimated'] as const
 
 /**
+ * Where a request or response example came from.
+ *
+ * An observed sample and an invented illustration must not look the same in
+ * the Viewer, so an example is never valid without saying which it is.
+ */
+export const EXAMPLE_SOURCES = ['observed', 'spec', 'inferred'] as const
+
+const exampleSourceSchema = z.enum(EXAMPLE_SOURCES)
+
+/** An example carries its provenance, exactly like a timing number carries its source. */
+function exampleRequiresSource<T extends { example?: unknown; source?: unknown }>(value: T): boolean {
+  return value.example === undefined || value.source !== undefined
+}
+
+/**
  * Observed timing for one endpoint.
  *
  * The shape is evidence-first on purpose: `source` is required, so the Viewer
@@ -113,11 +128,19 @@ export const TIMING_SOURCES = ['trace', 'har', 'log', 'metrics', 'estimated'] as
  * inference stays visibly separate from Trace / HAR / Log observations. At
  * least one sample, aggregate, or phase breakdown must be present, so an empty
  * `timing` object cannot claim to have measured anything.
+ *
+ * Rate and errors ride along so a percentile is never read alone: `sampleSize`
+ * is the request count behind the percentiles, `errorCount` is how many of
+ * them failed. A declared target lives on the endpoint instead, because a
+ * budget is contract, not observation.
  */
 export const apiTimingSchema = z.object({
   source: z.enum(TIMING_SOURCES),
   unit: z.literal('ms').default('ms'),
+  /** Requests observed in the window: the percentile basis and the error-rate denominator. */
   sampleSize: z.number().int().positive().optional(),
+  /** Of `sampleSize`, how many failed; the Viewer derives the error rate from the two. */
+  errorCount: z.number().int().nonnegative().optional(),
   /** Raw observations, kept so a reader can judge the distribution. */
   samples: z.array(z.number().nonnegative()).optional(),
   p50: z.number().nonnegative().optional(),
@@ -138,6 +161,11 @@ export const apiTimingSchema = z.object({
     ttfb: z.number().nonnegative().optional(),
     download: z.number().nonnegative().optional(),
   }).optional(),
+  /** Aggregation window the numbers describe; an unqualified rate is not interpretable. */
+  window: z.object({
+    from: z.string().datetime(),
+    to: z.string().datetime(),
+  }).optional(),
   measuredAt: z.string().datetime().optional(),
   /** How the number was obtained; required reading whenever `source` is `estimated`. */
   note: z.string().optional(),
@@ -151,6 +179,11 @@ export const apiTimingSchema = z.object({
     || timing.max !== undefined
     || timing.breakdown !== undefined,
   { message: 'Timing must carry samples, an aggregate, or a breakdown' },
+).refine(
+  (timing) => timing.errorCount === undefined
+    || timing.sampleSize === undefined
+    || timing.errorCount <= timing.sampleSize,
+  { message: 'errorCount cannot exceed sampleSize' },
 )
 
 export const apiEndpointSchema = z.object({
@@ -160,6 +193,17 @@ export const apiEndpointSchema = z.object({
   path: nonEmpty,
   summary: z.string().optional(),
   service: z.string().optional(),
+  /**
+   * Declared or target latency (an SLO), not an observation.
+   *
+   * Kept on the endpoint because it is part of the contract: the Viewer only
+   * colours an observed number against a threshold someone actually declared,
+   * never against one it invented. No standard OpenAPI field exists, so
+   * `expectedRef` records where the number came from.
+   */
+  expectedMs: z.number().nonnegative().optional(),
+  /** Where `expectedMs` is declared, e.g. an `x-expected-response-time-ms` extension or a doc URL. */
+  expectedRef: z.string().optional(),
   request: z.object({
     params: z.array(z.object({
       name: nonEmpty,
@@ -167,20 +211,23 @@ export const apiEndpointSchema = z.object({
       type: z.string().optional(),
       required: z.boolean().optional(),
       example: z.unknown().optional(),
-    })).optional(),
+      source: exampleSourceSchema.optional(),
+    }).refine(exampleRequiresSource, { message: 'An example must declare its source' })).optional(),
     body: z.object({
       contentType: z.string().optional(),
       example: z.unknown().optional(),
+      source: exampleSourceSchema.optional(),
       schemaArtifactRef: nonEmpty.optional(),
-    }).optional(),
+    }).refine(exampleRequiresSource, { message: 'An example must declare its source' }).optional(),
   }).optional(),
   responses: z.array(z.object({
     status: z.number().int().min(100).max(599),
     description: z.string().optional(),
     contentType: z.string().optional(),
     example: z.unknown().optional(),
+    source: exampleSourceSchema.optional(),
     artifactRef: nonEmpty.optional(),
-  })).optional(),
+  }).refine(exampleRequiresSource, { message: 'An example must declare its source' })).optional(),
   timing: apiTimingSchema.optional(),
   artifactRefs: z.array(nonEmpty).optional(),
   relatedBlockIds: z.array(nonEmpty).optional(),
