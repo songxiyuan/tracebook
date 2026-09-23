@@ -30,7 +30,7 @@ npm install --legacy-peer-deps
 npm run verify
 ```
 
-DSH 的能力包声明为宿主 peer dependencies；`--legacy-peer-deps` 可避免 npm 在插件仓库中重复安装整套 Agent Runtime。
+DSH 的能力包声明为宿主 peer dependencies；`--legacy-peer-deps` 可避免 npm 在插件仓库中重复安装整套 Agent Runtime。`npm install` 会通过 `prepare` 钩子自动构建 `dist/`。
 
 本地安装到 DSH Web Profile：
 
@@ -41,6 +41,8 @@ dsh --profile web
 ```
 
 打开 `http://127.0.0.1:<dsh-port>/tracebook/`，或直接点击会话标题栏的 `Tracebook` 按钮。
+
+> 装到另一台电脑、离线 tarball 安装、升级与排错见 **[安装与部署](doc/install.md)**。
 
 修改 Host Plugin 或 Client Plugin 之后需要重启 `dsh web`：Host 侧重新加载 `dist/index.js`，浏览器侧重新扫描 `dsh.client` 并加载 `dist/client.js`；只刷新页面不够。仅修改 Vue 时重新 `npm run build:web` 并刷新页面即可。
 
