@@ -88,6 +88,9 @@ export interface AskResult {
  */
 export function onAskResult(handler: (result: AskResult) => void): () => void {
   const listener = (event: MessageEvent) => {
+    // Trust only same-origin messages from our own parent frame; the source
+    // check alone would accept a cross-origin frame posing as the parent.
+    if (event.origin !== window.location.origin) return
     if (event.source !== window.parent) return
     const data = event.data as { source?: unknown; type?: unknown; ok?: unknown; reason?: unknown } | undefined
     if (!data || data.source !== 'tracebook' || data.type !== 'ask-result') return

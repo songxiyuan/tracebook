@@ -40,6 +40,8 @@ const askStatus = ref('')
 const askError = ref('')
 const askBusy = ref(false)
 let askTimeout: number | undefined
+/** The dialog root, focused when the Ask modal opens so keyboard users start inside it. */
+const askDialog = ref<HTMLElement>()
 
 const caseId = computed(() => String(route.params.id))
 const linkedToSession = computed(() => {
@@ -54,6 +56,39 @@ const blocks = computed(() => {
   if (!needle) return all
   return all.filter((block) => JSON.stringify(block).toLowerCase().includes(needle))
 })
+
+/**
+ * Outline entries keep their document-order number even while a search narrows
+ * the list, so an item's number never shifts as the reader types.
+ */
+const outline = computed(() => {
+  const order = new Map((document.value?.blocks ?? []).map((block, index) => [block.id, index + 1]))
+  return blocks.value.map((block) => ({
+    id: block.id,
+    label: block.title || block.type,
+    number: order.get(block.id) ?? 0,
+  }))
+})
+
+/** Section currently in view, so the outline can highlight the reader's place. */
+const activeBlockId = ref('')
+let sectionObserver: IntersectionObserver | undefined
+
+/** (Re)observe the rendered block sections; the visible list changes with search. */
+function observeSections() {
+  sectionObserver?.disconnect()
+  if (typeof IntersectionObserver === 'undefined') return
+  const targets = blocks.value
+    .map((block) => globalThis.document.getElementById(`block-${block.id}`))
+    .filter((el): el is HTMLElement => el !== null)
+  if (!targets.length) { activeBlockId.value = ''; return }
+  sectionObserver = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (entry.isIntersecting) activeBlockId.value = entry.target.id.replace(/^block-/, '')
+    }
+  }, { rootMargin: '0px 0px -70% 0px', threshold: 0 })
+  for (const target of targets) sectionObserver.observe(target)
+}
 
 const askEnvelope = computed<AskEnvelope | undefined>(() => {
   const target = askTarget.value
@@ -96,14 +131,20 @@ const askText = computed(() => {
 async function load() {
   loading.value = true
   error.value = ''
+  // Switching cases fires overlapping loads; only the response for the case the
+  // route still points at may be applied.
+  const requested = caseId.value
   try {
-    document.value = await getCase(caseId.value)
+    const fresh = await getCase(requested)
+    if (requested !== caseId.value) return
+    document.value = fresh
     pendingRevision.value = undefined
     refreshError.value = ''
   } catch (reason) {
+    if (requested !== caseId.value) return
     error.value = reason instanceof Error ? reason.message : String(reason)
   } finally {
-    loading.value = false
+    if (requested === caseId.value) loading.value = false
   }
 }
 
@@ -125,8 +166,11 @@ async function loadSessionLink() {
  */
 async function refreshContent() {
   const scrollTop = window.scrollY
+  const requested = caseId.value
   try {
-    const fresh = await getCase(caseId.value)
+    const fresh = await getCase(requested)
+    // A slow refresh must not overwrite a case the reader has since left.
+    if (requested !== caseId.value) return
     document.value = fresh
     pendingRevision.value = undefined
     refreshError.value = ''
@@ -135,6 +179,10 @@ async function refreshContent() {
       window.scrollTo({ top: scrollTop, behavior: 'instant' as ScrollBehavior })
     })
   } catch (reason) {
+    if (requested !== caseId.value) return
+    // Drop the pending banner so the stale "update available" notice does not
+    // mask the refresh failure.
+    pendingRevision.value = undefined
     refreshError.value = reason instanceof Error ? reason.message : String(reason)
   }
 }
@@ -227,12 +275,24 @@ watch(() => route.query.session, (value) => {
   void loadSessionLink()
 })
 
+// The visible sections change with search and with a pulled-in revision; keep
+// the scroll-spy observer pointed at whatever is currently on screen.
+watch(blocks, () => { void nextTick().then(observeSections) })
+
+// Move keyboard focus into the Ask dialog the moment it opens.
+watch(askTarget, (target) => {
+  if (!target) return
+  void nextTick().then(() => askDialog.value?.focus())
+})
+
 onMounted(async () => {
   const fromQuery = route.query.session
   if (typeof fromQuery === 'string') rememberSession(fromQuery)
   disposeAskResult = onAskResult(handleAskResult)
   await load()
   await loadSessionLink()
+  await nextTick()
+  observeSections()
   pollTimer = window.setInterval(() => { void checkRevision() }, 12000)
   window.addEventListener('focus', checkRevision)
   globalThis.document.addEventListener('visibilitychange', checkRevision)
@@ -241,6 +301,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   if (pollTimer !== undefined) window.clearInterval(pollTimer)
   if (askTimeout !== undefined) window.clearTimeout(askTimeout)
+  sectionObserver?.disconnect()
   disposeAskResult?.()
   window.removeEventListener('focus', checkRevision)
   globalThis.document.removeEventListener('visibilitychange', checkRevision)
@@ -265,9 +326,15 @@ onBeforeUnmount(() => {
         <input v-model="blockQuery" type="search" placeholder="Search blocks" />
       </label>
       <p class="outline-label">CONTENTS</p>
-      <a v-for="(block, index) in blocks" :key="block.id" :href="`#block-${block.id}`" @click="outlineOpen = false">
-        <span>{{ String(index + 1).padStart(2, '0') }}</span>
-        {{ block.title || block.type }}
+      <a
+        v-for="entry in outline"
+        :key="entry.id"
+        :href="`#block-${entry.id}`"
+        :class="{ active: entry.id === activeBlockId }"
+        @click="outlineOpen = false"
+      >
+        <span>{{ String(entry.number).padStart(2, '0') }}</span>
+        {{ entry.label }}
       </a>
       <p v-if="!blocks.length" class="outline-empty">No block matches “{{ blockQuery }}”.</p>
     </aside>
@@ -336,11 +403,18 @@ onBeforeUnmount(() => {
       <RevisionHistory :case-id="document.id" :current-revision="document.revision" />
     </article>
 
-    <div v-if="askTarget" class="ask-backdrop" @click.self="closeAsk">
-      <section class="ask-dialog">
+    <div v-if="askTarget" class="ask-backdrop" @click.self="closeAsk" @keydown.esc="closeAsk">
+      <section
+        ref="askDialog"
+        class="ask-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ask-dialog-title"
+        tabindex="-1"
+      >
         <header>
           <span class="evidence-kind">{{ askTarget.type }}</span>
-          <h2>Ask about this</h2>
+          <h2 id="ask-dialog-title">Ask about this</h2>
           <button aria-label="Close" @click="closeAsk">×</button>
         </header>
         <p class="ask-target">{{ askTarget.blockId }} · {{ askTarget.id }}<template v-if="askTarget.label"> · {{ askTarget.label }}</template></p>

@@ -1,16 +1,51 @@
 import type { CaseDocument, CaseRevisionSnapshot, CaseRevisionSummary, CaseSummary } from '../../src/core/model'
 
-async function request<T>(path: string): Promise<T> {
-  const response = await fetch(`/tracebook/api${path}`, { headers: { accept: 'application/json' } })
-  if (!response.ok) {
-    const detail = await response.json().catch(() => undefined) as { error?: { message?: string } } | undefined
-    throw new Error(detail?.error?.message ?? `Request failed (${response.status})`)
+/** A slow or hung backend should surface as a clear error, not an endless spinner. */
+const DEFAULT_TIMEOUT_MS = 15000
+
+/**
+ * Shared read helper: every call gets an abort-based timeout and a single,
+ * unified error surface (HTTP status, backend message, timeout, or network).
+ */
+async function request<T>(path: string, options: { timeoutMs?: number } = {}): Promise<T> {
+  const controller = new AbortController()
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const response = await fetch(`/tracebook/api${path}`, {
+      headers: { accept: 'application/json' },
+      signal: controller.signal,
+    })
+    if (!response.ok) {
+      const detail = await response.json().catch(() => undefined) as { error?: { message?: string } } | undefined
+      throw new Error(detail?.error?.message ?? `Request failed (${response.status})`)
+    }
+    return await response.json() as T
+  } catch (reason) {
+    if (reason instanceof DOMException && reason.name === 'AbortError') {
+      throw new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s`)
+    }
+    throw reason instanceof Error ? reason : new Error(String(reason))
+  } finally {
+    clearTimeout(timer)
   }
-  return response.json() as Promise<T>
+}
+
+/** The list is the entry point; retry once so a single transient failure does not strand it. */
+async function requestWithRetry<T>(path: string, retries = 1): Promise<T> {
+  let lastError: unknown
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await request<T>(path)
+    } catch (reason) {
+      lastError = reason
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError))
 }
 
 export async function listCases() {
-  return (await request<{ cases: CaseSummary[] }>('/cases')).cases
+  return (await requestWithRetry<{ cases: CaseSummary[] }>('/cases')).cases
 }
 
 export function getCase(caseId: string) {

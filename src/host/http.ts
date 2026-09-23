@@ -36,11 +36,20 @@ function sendError(response: ServerResponse, error: unknown) {
   sendJson(response, 500, { error: { code: 'INTERNAL_ERROR', message: 'Unexpected Tracebook error' } })
 }
 
-async function streamFile(response: ServerResponse, path: string, method: string, cacheControl: string) {
+async function streamFile(
+  response: ServerResponse,
+  path: string,
+  method: string,
+  cacheControl: string,
+  contentType?: string,
+) {
   const info = await stat(path)
   if (!info.isFile()) return false
   response.writeHead(200, {
-    'content-type': lookup(path) || 'application/octet-stream',
+    // A validated `mimeType` on the artifact record wins over sniffing the
+    // on-disk extension, so `trace.txt` declared as application/json is served
+    // as JSON rather than text/plain.
+    'content-type': contentType || lookup(path) || 'application/octet-stream',
     'content-length': info.size,
     'cache-control': cacheControl,
     'x-content-type-options': 'nosniff',
@@ -93,7 +102,12 @@ async function handleApi(pathname: string, request: IncomingMessage, response: S
   if (artifactMatch) {
     const { artifact, path } = await service.resolveArtifact(decodeURIComponent(artifactMatch[1]!))
     response.setHeader('content-disposition', `inline; filename*=UTF-8''${encodeURIComponent(artifact.name ?? artifact.id)}`)
-    await streamFile(response, path, request.method, 'private, max-age=300')
+    // Artifact bytes are Agent-written and may come from an external capture, so
+    // an SVG/HTML opened directly must not execute script in the DSH origin. A
+    // sandbox CSP forces a unique origin (no scripts, no same-origin access)
+    // while still letting images and text render inline.
+    response.setHeader('content-security-policy', 'sandbox; default-src \'none\'; img-src \'self\' data:; style-src \'unsafe-inline\'; media-src \'self\'')
+    await streamFile(response, path, request.method, 'private, max-age=300', artifact.mimeType)
     return
   }
   sendJson(response, 404, { error: { code: 'NOT_FOUND', message: 'API route not found' } })

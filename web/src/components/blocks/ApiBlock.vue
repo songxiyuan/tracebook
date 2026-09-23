@@ -31,12 +31,21 @@ interface HarState {
 
 const harStates = ref<Record<string, HarState>>({})
 
-function setHarState(id: string, state: HarState) {
-  harStates.value = { ...harStates.value, [id]: state }
+/**
+ * HAR state is keyed by endpoint id *and* the artifact it cites, so a block
+ * update that swaps the referenced artifact resets the state instead of
+ * short-circuiting on a stale `ready`/`loading` entry.
+ */
+function harKey(endpoint: ApiEndpoint): string {
+  return `${endpoint.id}::${endpoint.timing?.artifactRef ?? ''}`
 }
 
-function harStateFor(id: string): HarState | undefined {
-  return harStates.value[id]
+function setHarState(key: string, state: HarState) {
+  harStates.value = { ...harStates.value, [key]: state }
+}
+
+function harStateFor(key: string): HarState | undefined {
+  return harStates.value[key]
 }
 
 /** The chart element per endpoint, so the HAR is handed over as a property. */
@@ -77,10 +86,11 @@ async function loadEndpointHar(id: string) {
   const endpoint = props.block.endpoints.find((entry) => entry.id === id)
   const timing = endpoint?.timing
   if (!endpoint || timing?.source !== 'har' || !timing.artifactRef) return
-  const existing = harStateFor(id)
+  const key = harKey(endpoint)
+  const existing = harStateFor(key)
   if (existing?.status === 'ready' || existing?.status === 'loading') return
   const artifactId = timing.artifactRef
-  setHarState(id, { status: 'loading' })
+  setHarState(key, { status: 'loading' })
   try {
     const response = await fetch(artifactUrl(artifactId))
     if (!response.ok) throw new Error(`HAR artifact read failed (${response.status})`)
@@ -89,16 +99,16 @@ async function loadEndpointHar(id: string) {
     const entries = matchHarEntries(document, endpoint.method, endpoint.path)
     if (!entries.length) throw new Error('No captured request matches this endpoint')
     await ensureWaterfall()
-    setHarState(id, {
+    setHarState(key, {
       status: 'ready',
       document: harDocumentForEntries(document, entries),
       entryCount: entries.length,
     })
     // The element only exists once the ready branch has painted.
     await nextTick()
-    applyChart(id)
+    applyChart(key)
   } catch (reason) {
-    setHarState(id, {
+    setHarState(key, {
       status: 'error',
       message: reason instanceof Error ? reason.message : String(reason),
     })
@@ -118,7 +128,7 @@ const rows = computed(() => matches.value.map((endpoint) => {
     lead,
     breakdown: endpoint.timing ? breakdownSegments(endpoint.timing) : undefined,
     aggregates: endpoint.timing ? timingAggregates(endpoint.timing) : [],
-    har: harStates.value[endpoint.id],
+    har: harStates.value[harKey(endpoint)],
     // Only a threshold someone actually declared may colour the number.
     overBudget: lead !== undefined
       && endpoint.expectedMs !== undefined
@@ -132,9 +142,14 @@ function toggle(id: string) {
   if (next) void loadEndpointHar(next)
 }
 
-function formatMs(value: number): string {
-  if (value >= 1000) return `${(value / 1000).toFixed(2)} s`
-  return `${Math.round(value * 10) / 10} ms`
+/**
+ * Render a duration in the timing's own unit. The schema pins `unit` to 'ms',
+ * so a value is milliseconds; it reads as seconds past 1000ms with the suffix
+ * following the number, so the printed value and its unit never disagree.
+ */
+function formatDuration(value: number, unit: ApiTiming['unit'] = 'ms'): string {
+  if (unit === 'ms' && value >= 1000) return `${(value / 1000).toFixed(2)} s`
+  return `${Math.round(value * 10) / 10} ${unit}`
 }
 
 /**
@@ -215,7 +230,8 @@ function exampleSourceClass(source: 'observed' | 'spec' | 'inferred' | undefined
 
 /** Error rate is derived from the two counts, never stored twice and allowed to drift. */
 function errorRate(timing: ApiTiming): string | undefined {
-  if (timing.errorCount === undefined || timing.sampleSize === undefined) return undefined
+  // A zero (or missing) denominator has no rate; never divide it into `err NaN%`.
+  if (timing.errorCount === undefined || timing.sampleSize === undefined || timing.sampleSize < 1) return undefined
   return `${((timing.errorCount / timing.sampleSize) * 100).toFixed(1)}%`
 }
 
@@ -296,7 +312,7 @@ function artifactName(id: string): string {
                   class="api-timing-value"
                   :class="{ estimated: isEstimated(row.endpoint.timing), over: row.overBudget }"
                 >
-                  {{ row.lead ? `${row.lead.label} ${formatMs(row.lead.value)}` : '—' }}
+                  {{ row.lead ? `${row.lead.label} ${formatDuration(row.lead.value, row.endpoint.timing?.unit)}` : '—' }}
                 </span>
                 <span class="api-timing-source" :class="{ estimated: isEstimated(row.endpoint.timing) }">
                   {{ sourceLabel(row.endpoint.timing) }}
@@ -368,13 +384,13 @@ function artifactName(id: string): string {
                 </div>
 
                 <section v-if="row.endpoint.timing" class="api-detail-section api-timing-detail">
-                  <p class="api-detail-label">Timing · {{ row.endpoint.timing.unit }}</p>
+                  <p class="api-detail-label">Timing</p>
                   <div class="api-timing-head">
                     <span class="api-timing-source" :class="{ estimated: isEstimated(row.endpoint.timing) }">
                       {{ sourceLabel(row.endpoint.timing) }}
                     </span>
                     <span v-for="aggregate in row.aggregates" :key="aggregate.label" class="api-timing-agg">
-                      <small>{{ aggregate.label }}</small><strong>{{ formatMs(aggregate.value) }}</strong>
+                      <small>{{ aggregate.label }}</small><strong>{{ formatDuration(aggregate.value, row.endpoint.timing.unit) }}</strong>
                     </span>
                     <span v-if="row.endpoint.timing.sampleSize" class="api-timing-agg">
                       <small>requests</small><strong>{{ row.endpoint.timing.sampleSize }}</strong>
@@ -396,7 +412,7 @@ function artifactName(id: string): string {
                       HAR 单次请求瀑布 · {{ row.har?.entryCount }} 条匹配请求
                     </p>
                     <waterfall-chart
-                      :ref="(el: Element | ComponentPublicInstance | null) => bindChart(row.endpoint.id, el)"
+                      :ref="(el: Element | ComponentPublicInstance | null) => bindChart(harKey(row.endpoint), el)"
                       class="api-har"
                     />
                   </template>
@@ -411,7 +427,7 @@ function artifactName(id: string): string {
                       class="api-waterfall-seg"
                       :style="{ flexGrow: Math.max(part.share, 0.02) }"
                     >
-                      <small>{{ part.label }}</small><strong>{{ formatMs(part.value) }}</strong>
+                      <small>{{ part.label }}</small><strong>{{ formatDuration(part.value, row.endpoint.timing?.unit) }}</strong>
                     </span>
                   </div>
                   <p v-if="row.har?.status === 'error'" class="api-har-note error">
@@ -424,7 +440,7 @@ function artifactName(id: string): string {
                 </section>
 
                 <p v-if="row.endpoint.expectedMs !== undefined" class="api-slo" :class="{ over: row.overBudget }">
-                  声明耗时 SLO ≤ {{ formatMs(row.endpoint.expectedMs) }}
+                  声明耗时 SLO ≤ {{ formatDuration(row.endpoint.expectedMs) }}
                   <span v-if="row.endpoint.expectedRef" class="api-dim">（{{ row.endpoint.expectedRef }}）</span>
                   <template v-if="row.overBudget"> · 超出</template>
                 </p>

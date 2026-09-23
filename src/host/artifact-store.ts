@@ -1,13 +1,17 @@
-import { mkdir, rename, writeFile } from 'node:fs/promises'
+import { mkdir, rename, stat, writeFile } from 'node:fs/promises'
 import { dirname, extname, join, resolve, sep } from 'node:path'
 import { extension } from 'mime-types'
 import { artifactInputSchema, type Artifact, type ArtifactInput } from '../core/model.js'
 import type { ArtifactStore } from '../core/artifact-store.js'
 
-function assertInside(root: string, candidate: string) {
+function isInside(root: string, candidate: string) {
   const normalizedRoot = resolve(root)
   const normalizedCandidate = resolve(candidate)
-  if (normalizedCandidate !== normalizedRoot && !normalizedCandidate.startsWith(`${normalizedRoot}${sep}`)) {
+  return normalizedCandidate === normalizedRoot || normalizedCandidate.startsWith(`${normalizedRoot}${sep}`)
+}
+
+function assertInside(root: string, candidate: string) {
+  if (!isInside(root, candidate)) {
     throw new Error('Resolved artifact path escapes the artifact root')
   }
 }
@@ -55,7 +59,17 @@ export class FileArtifactStore implements ArtifactStore {
 
   async resolve(artifact: Artifact) {
     if (!artifact.path) return undefined
-    assertInside(this.root, artifact.path)
+    // A path that escapes the root or no longer exists on disk (root moved,
+    // machine changed, file pruned) resolves to "not found" rather than a raw
+    // 500: the caller turns `undefined` into ARTIFACT_NOT_FOUND (404).
+    if (!isInside(this.root, artifact.path)) return undefined
+    try {
+      const info = await stat(artifact.path)
+      if (!info.isFile()) return undefined
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+      throw error
+    }
     return artifact.path
   }
 }

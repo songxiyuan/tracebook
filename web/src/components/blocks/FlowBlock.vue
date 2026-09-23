@@ -53,6 +53,9 @@ function markImageFailed(id: string) {
 const { fitView } = useVueFlow()
 const elk = new ELK()
 
+/** A layout/render failure must show a readable error, not a silent white canvas. */
+const layoutError = ref<string | undefined>(undefined)
+
 /** Canvas height bounds; the laid-out graph decides where in between it lands. */
 const NODE_WIDTH = 176
 const NODE_HEIGHT = 58
@@ -90,34 +93,44 @@ function layoutOptions(value: FlowBlock['direction']) {
 }
 
 async function layout() {
-  const graph = await elk.layout({
-    id: 'root',
-    layoutOptions: layoutOptions(direction.value),
-    children: props.block.nodes.map((node) => ({ id: node.id, width: NODE_WIDTH, height: NODE_HEIGHT })),
-    edges: props.block.edges.map((edge) => ({ id: edge.id, sources: [edge.source], targets: [edge.target] })),
-  })
-  const sourceNodes = new Map(props.block.nodes.map((node) => [node.id, node]))
-  const laidOut = graph.children ?? []
-  nodes.value = laidOut.map((node) => {
-    const source = sourceNodes.get(node.id)!
-    return {
-      id: node.id,
-      position: { x: node.x ?? 0, y: node.y ?? 0 },
-      data: { label: source.label, kind: source.kind },
-      class: source.kind ? `kind-${source.kind}` : '',
-    }
-  })
-  // The canvas hugs its laid-out content: a wide, shallow flow must not reserve
-  // a tall empty box, and a deep flow gets room before it starts panning.
-  const contentHeight = laidOut.reduce((tallest, node) => Math.max(tallest, (node.y ?? 0) + NODE_HEIGHT), 0)
-  shellHeight.value = Math.min(CANVAS_MAX_HEIGHT, Math.max(CANVAS_MIN_HEIGHT, Math.round(contentHeight) + 128))
-  edges.value = props.block.edges.map((edge) => ({
-    id: edge.id, source: edge.source, target: edge.target, label: edge.label, animated: false,
-  }))
-  await nextTick()
-  // Node labels are the payload, so the opening view keeps a legibility floor and
-  // lets the reader pan; the minimap and the fit control still give the overview.
-  fitView({ padding: 0.12, minZoom: 0.6 })
+  try {
+    // Only lay out edges whose endpoints exist: a stored graph can drift out of
+    // sync with its nodes, and a dangling edge otherwise crashes ELK into a
+    // blank canvas.
+    const nodeIdSet = new Set(props.block.nodes.map((node) => node.id))
+    const safeEdges = props.block.edges.filter((edge) => nodeIdSet.has(edge.source) && nodeIdSet.has(edge.target))
+    const graph = await elk.layout({
+      id: 'root',
+      layoutOptions: layoutOptions(direction.value),
+      children: props.block.nodes.map((node) => ({ id: node.id, width: NODE_WIDTH, height: NODE_HEIGHT })),
+      edges: safeEdges.map((edge) => ({ id: edge.id, sources: [edge.source], targets: [edge.target] })),
+    })
+    const sourceNodes = new Map(props.block.nodes.map((node) => [node.id, node]))
+    const laidOut = graph.children ?? []
+    nodes.value = laidOut.map((node) => {
+      const source = sourceNodes.get(node.id)!
+      return {
+        id: node.id,
+        position: { x: node.x ?? 0, y: node.y ?? 0 },
+        data: { label: source.label, kind: source.kind },
+        class: source.kind ? `kind-${source.kind}` : '',
+      }
+    })
+    // The canvas hugs its laid-out content: a wide, shallow flow must not reserve
+    // a tall empty box, and a deep flow gets room before it starts panning.
+    const contentHeight = laidOut.reduce((tallest, node) => Math.max(tallest, (node.y ?? 0) + NODE_HEIGHT), 0)
+    shellHeight.value = Math.min(CANVAS_MAX_HEIGHT, Math.max(CANVAS_MIN_HEIGHT, Math.round(contentHeight) + 128))
+    edges.value = safeEdges.map((edge) => ({
+      id: edge.id, source: edge.source, target: edge.target, label: edge.label, animated: false,
+    }))
+    layoutError.value = undefined
+    await nextTick()
+    // Node labels are the payload, so the opening view keeps a legibility floor and
+    // lets the reader pan; the minimap and the fit control still give the overview.
+    fitView({ padding: 0.12, minZoom: 0.6 })
+  } catch (error) {
+    layoutError.value = error instanceof Error ? error.message : 'Failed to lay out this flow'
+  }
 }
 
 function selectNode(event: { node: { id: string } }) {
@@ -155,7 +168,8 @@ watch(direction, layout)
       >{{ option }}</button>
     </div>
     <div class="flow-canvas">
-      <VueFlow :nodes="nodes" :edges="edges" :nodes-draggable="true" :min-zoom="0.2" :max-zoom="2" fit-view-on-init @node-click="selectNode">
+      <p v-if="layoutError" class="flow-error" role="alert">Flow layout failed: {{ layoutError }}</p>
+      <VueFlow :nodes="nodes" :edges="edges" :nodes-draggable="true" :min-zoom="0.2" :max-zoom="2" @node-click="selectNode">
         <template #node-default="{ data }">
           <div class="flow-node">
             <strong>{{ data.label }}</strong>

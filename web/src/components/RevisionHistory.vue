@@ -12,16 +12,36 @@ const base = ref<CaseRevisionSnapshot>()
 const target = ref<CaseRevisionSnapshot>()
 const loading = ref(true)
 const error = ref('')
+/** Kept apart from the list error so a failed side-load leaves the timeline readable. */
+const diffError = ref('')
+
+interface FieldChange {
+  field: string
+  before: string
+  after: string
+}
 
 interface DiffEntry {
   id: string
   change: 'added' | 'removed' | 'changed'
   title?: string
   type?: string
-  fields: string[]
+  fields: FieldChange[]
 }
 
 const selected = computed(() => ({ base: baseRevision.value, target: targetRevision.value }))
+
+/** Case-level metadata moves outside any block; surface title/status/summary edits on their own. */
+const metaDiff = computed<FieldChange[]>(() => {
+  if (!base.value || !target.value) return []
+  const changes: FieldChange[] = []
+  for (const field of ['title', 'status', 'summary'] as const) {
+    const before = base.value[field] ?? ''
+    const after = target.value[field] ?? ''
+    if (before !== after) changes.push({ field, before: summarizeValue(before), after: summarizeValue(after) })
+  }
+  return changes
+})
 
 /** Compare two revisions by stable block id; titles and payload fields answer "what moved". */
 const diff = computed<DiffEntry[]>(() => {
@@ -46,15 +66,29 @@ const diff = computed<DiffEntry[]>(() => {
   return entries
 })
 
-function changedFields(before: Block, after: Block): string[] {
+/** Compact, human-readable form of a field value; arrays and objects never blow up a row. */
+function summarizeValue(value: unknown): string {
+  if (value === undefined) return '—'
+  if (value === null) return 'null'
+  if (Array.isArray(value)) return `${value.length} item${value.length === 1 ? '' : 's'}`
+  const text = typeof value === 'string' ? value : JSON.stringify(value)
+  return text.length > 48 ? `${text.slice(0, 48)}…` : (text || '—')
+}
+
+/**
+ * Field-level diff for one block, keeping the before→after values (not just the
+ * names). A block's `artifactRefs` are ordinary fields, so artifact changes ride
+ * along here; case-level artifacts are not part of a revision snapshot.
+ */
+function changedFields(before: Block, after: Block): FieldChange[] {
   const keys = new Set([...Object.keys(before), ...Object.keys(after)])
-  const changed: string[] = []
+  const changed: FieldChange[] = []
   for (const key of keys) {
     if (key === 'updatedAt') continue
     const left = (before as unknown as Record<string, unknown>)[key]
     const right = (after as unknown as Record<string, unknown>)[key]
     if (JSON.stringify(left) === JSON.stringify(right)) continue
-    changed.push(Array.isArray(left) && Array.isArray(right) ? `${key} ${left.length}→${right.length}` : key)
+    changed.push({ field: key, before: summarizeValue(left), after: summarizeValue(right) })
   }
   return changed
 }
@@ -65,10 +99,17 @@ async function load() {
   try {
     const result = await listRevisions(props.caseId)
     revisions.value = result.revisions
+    const available = new Set(result.revisions.map((item) => item.revision))
     const newest = result.revisions[0]
     const previous = result.revisions[1] ?? newest
-    targetRevision.value = newest?.revision
-    baseRevision.value = previous?.revision
+    // Keep the reader's chosen comparison across refreshes; only re-anchor on the
+    // newest pair when a side is unset or the picked revision no longer exists.
+    if (targetRevision.value === undefined || !available.has(targetRevision.value)) {
+      targetRevision.value = newest?.revision
+    }
+    if (baseRevision.value === undefined || !available.has(baseRevision.value)) {
+      baseRevision.value = previous?.revision
+    }
     await loadSides()
   } catch (reason) {
     error.value = reason instanceof Error ? reason.message : String(reason)
@@ -77,13 +118,23 @@ async function load() {
   }
 }
 
+// A late snapshot response must not overwrite a newer request's result.
+let sidesToken = 0
 async function loadSides() {
-  const [left, right] = await Promise.all([
-    baseRevision.value === undefined ? undefined : getRevisionSnapshot(props.caseId, baseRevision.value),
-    targetRevision.value === undefined ? undefined : getRevisionSnapshot(props.caseId, targetRevision.value),
-  ])
-  base.value = left
-  target.value = right
+  const token = ++sidesToken
+  diffError.value = ''
+  try {
+    const [left, right] = await Promise.all([
+      baseRevision.value === undefined ? undefined : getRevisionSnapshot(props.caseId, baseRevision.value),
+      targetRevision.value === undefined ? undefined : getRevisionSnapshot(props.caseId, targetRevision.value),
+    ])
+    if (token !== sidesToken) return
+    base.value = left
+    target.value = right
+  } catch (reason) {
+    if (token !== sidesToken) return
+    diffError.value = reason instanceof Error ? reason.message : String(reason)
+  }
 }
 
 async function pick(side: 'base' | 'target', revision: number) {
@@ -137,15 +188,31 @@ watch(() => props.currentRevision, load)
           <span v-if="selected.base === selected.target" class="artifact-note">Pick two different revisions.</span>
           <button class="ghost" @click="swap">Swap</button>
         </div>
-        <ul v-if="diff.length" class="diff-list">
-          <li v-for="entry in diff" :key="entry.id" :class="entry.change">
-            <span class="diff-badge">{{ entry.change }}</span>
-            <code>{{ entry.id }}</code>
-            <span>{{ entry.title || entry.type }}</span>
-            <small v-if="entry.fields.length">changed: {{ entry.fields.join(', ') }}</small>
-          </li>
-        </ul>
-        <p v-else-if="selected.base !== selected.target" class="artifact-note">No block-level differences between these revisions.</p>
+        <p v-if="diffError" class="artifact-note error">{{ diffError }}</p>
+        <template v-else>
+          <ul v-if="metaDiff.length" class="diff-list">
+            <li v-for="change in metaDiff" :key="change.field" class="changed">
+              <span class="diff-badge">meta</span>
+              <code>{{ change.field }}</code>
+              <span>{{ change.before }} → {{ change.after }}</span>
+            </li>
+          </ul>
+          <ul v-if="diff.length" class="diff-list">
+            <li v-for="entry in diff" :key="entry.id" :class="entry.change">
+              <span class="diff-badge">{{ entry.change }}</span>
+              <code>{{ entry.id }}</code>
+              <span>{{ entry.title || entry.type }}</span>
+              <ul v-if="entry.fields.length" class="diff-fields">
+                <li v-for="field in entry.fields" :key="field.field">
+                  <code>{{ field.field }}</code> {{ field.before }} → {{ field.after }}
+                </li>
+              </ul>
+            </li>
+          </ul>
+          <p v-if="!metaDiff.length && !diff.length && selected.base !== selected.target" class="artifact-note">
+            No differences between these revisions.
+          </p>
+        </template>
       </div>
     </template>
   </section>

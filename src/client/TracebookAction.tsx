@@ -78,12 +78,23 @@ export function createTracebookAction(ctx: ClientContext): FunctionComponent<Tra
     const open = useCallback(() => {
       setCopied(false)
       setPhase('busy')
-      try {
-        ctx.sidebarRight.openTab(TRACEBOOK_TAB_KIND)
-        setPhase('idle')
-      } catch {
+      const openInBrowser = () => {
+        // Same-origin URL, so the Viewer resolves the session itself.
         const opened = window.open(viewerUrl(sessionId), '_blank', 'noopener')
         setPhase(opened ? 'idle' : 'failed')
+      }
+      // The right Sidebar service may be absent in this surface; when its
+      // tab-open path is unavailable, fall back to a browser tab rather than
+      // silently doing nothing.
+      if (typeof ctx.sidebarRight?.openTab !== 'function') {
+        openInBrowser()
+      } else {
+        try {
+          ctx.sidebarRight.openTab(TRACEBOOK_TAB_KIND)
+          setPhase('idle')
+        } catch {
+          openInBrowser()
+        }
       }
       if (timer.current !== undefined) window.clearTimeout(timer.current)
       timer.current = window.setTimeout(() => setPhase((current) => (current === 'busy' ? 'idle' : current)), 400)

@@ -100,4 +100,10 @@ describe('tracebook http routes', () => {
     expect(unknown.status).toBe(404)
     expect(await unknown.json()).toMatchObject({ error: { code: 'NOT_FOUND' } })
   })
+
+  it('maps an unresolvable artifact to 404 ARTIFACT_NOT_FOUND, never a bare 500', async () => {
+    const missing = await fetch(`${base}/tracebook/api/artifacts/does-not-exist`)
+    expect(missing.status).toBe(404)
+    expect(await missing.json()).toMatchObject({ error: { code: 'ARTIFACT_NOT_FOUND' } })
+  })
 })

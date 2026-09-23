@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { listCases, sessionCases, type SessionCases } from '../api'
 import { rememberSession, sessionId } from '../session'
@@ -53,12 +53,15 @@ async function copyPrompt() {
   }
 }
 
-onMounted(async () => {
+/** Resolve the query params into either a redirect to the session's case or the full list. */
+async function resolve() {
   const fromQuery = route.query.session
   if (typeof fromQuery === 'string') rememberSession(fromQuery)
   // `all=1` is the explicit "browse everything" entry (the detail page's back
   // link); without it a session-aware open lands on the linked case instead.
   const browseAll = route.query.all === '1'
+  loading.value = true
+  error.value = ''
   try {
     const id = sessionId.value
     if (id) {
@@ -77,7 +80,13 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
-})
+}
+
+onMounted(resolve)
+
+// Navigation between the session-scoped view and the full list changes only the
+// query, not the route, so re-resolve when either param moves.
+watch(() => [route.query.session, route.query.all], () => { void resolve() })
 </script>
 
 <template>
@@ -163,9 +172,15 @@ onMounted(async () => {
         </table>
       </div>
 
-      <div v-else class="state-card empty">
+      <div v-else-if="!cases.length" class="state-card empty">
         <h3>No cases yet</h3>
         <p>Ask the DSH Agent to open a Tracebook case, then results will appear here.</p>
+      </div>
+
+      <div v-else class="state-card empty">
+        <h3>No cases match your search</h3>
+        <p>“{{ query }}” did not match any case in the library.</p>
+        <button class="ghost" @click="query = ''">Clear search</button>
       </div>
     </section>
   </main>
