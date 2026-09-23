@@ -198,8 +198,26 @@ Case 主数据走 DSH `storage-domain` 路由，Tracebook 不直接依赖 SQLite
 
 改动生效范围：
 
-- **仅改 Vue Viewer**（`web/`）：`npm run build:web`，刷新页面即可。
-- **改了 Host Plugin 或 Client Plugin**（`src/`）：**必须重启 `dsh web`** —— 宿主重新加载 `dist/index.js`，浏览器重新扫描 `dsh.client` 并加载 `dist/client.js`。只刷新页面不够。
+- **仅改 Vue Viewer**（`web/`）：`npm run build:web`，刷新页面即可 —— Host 对 `/tracebook` 的静态资源按请求读盘。
+- **改了 Client Plugin**（`src/client`）：`npm run build:client`。web profile 默认启用 `dsh-client-hmr`，它轮询每个 `dsh.client` bundle 的 mtime/size，变化时经 `/plugins/events` 推给浏览器热更新；刷新页面可兜底。
+- **改了 Host Plugin**（`src/host`、`src/core`、`src/index.ts`）：**默认必须重启 `dsh web`** —— 宿主插件的主模块在启动时只 `import` 一次，`dist/index.js` 变了也不会重新加载。只刷新页面不够；若想免重启，见下面「可选：打开宿主 HMR」。
+
+### 可选：打开宿主 HMR，免重启升级 Host Plugin
+
+web profile 的 base 层自带 `@deepseek-ai/cordis-plugin-hmr`，但默认 `disabled: true`。在 `~/.dsh/profiles/web/cordis.patch.yml` 里打开它，并把监控根目录指到插件的构建产物：
+
+```yaml
+- id: hmr
+  disabled: false
+  config:
+    root: ['.', /absolute/path/to/tracebook/dist]
+    ignored: ['**/node_modules', '**/.*']
+    debounce: 100
+```
+
+之后 `npm run build` 写出的新 `dist/index.js` 会在进程内热重载：HMR 顺着 Node 模块图清缓存，只重载依赖该文件的插件行；Agent 的工具列表每个 step 都从实时注册表重新组装，所以正在进行的会话下一步就能用上新的 Tool schema，不必新建会话。
+
+两点限制：patch 里的 `config` 是整块替换，必须重述 base 默认的 `root: ['.']`；框架级依赖的变化仍会退化成 `loader.exit()` 整进程重启。首次启用 HMR 这一步本身仍需要重启一次 `dsh web`。
 
 ---
 
@@ -222,6 +240,6 @@ dsh plugin --profile web remove dsh-tracebook
 | `dsh: pnpm failed in profile directory …`，`dump-config` 里没有 tracebook | pnpm 因被拦截的构建脚本非零退出，bundle 未注册 | 按第 2 节第 ④ 步设置 `allowBuilds` → 重跑 `add` |
 | `dump-config` 有 tracebook 行，但页面 404 | `dist/web/` 缺失 | 在仓库里 `npm run build:web`（或完整 `npm run build`） |
 | 页面能开但没有样式 / 控制台报旧资源 | 构建产物陈旧 | `npm run build:web` 后强制刷新 |
-| 会话标题栏没有 `Tracebook` 按钮 | `dist/client.js` 未生成，或改完 Client Plugin 没重启 | `npm run build:client` 后重启 `dsh web` |
+| 会话标题栏没有 `Tracebook` 按钮 | `dist/client.js` 未生成，或改完 Client Plugin 没生效 | `npm run build:client` 后刷新页面（`client-hmr` 通常已推送新 bundle），仍不行再重启 `dsh web` |
 | `dsh plugin` 报 `pnpm not found on PATH` | 目标机器没装 pnpm | 安装 pnpm 后重试 |
 | 两个 profile 各有一份数据 | `artifactDirectory` 用了相对路径 | 在 `cordis.patch.yml` 里写绝对路径 |
