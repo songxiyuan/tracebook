@@ -169,7 +169,7 @@ Case 已更新到 Revision 4    [刷新内容]
 - **Revision 历史与 Block diff**：每次写入 Case 都会把该 revision 的标题、summary、status 与 blocks 快照写入 `revisions` 表；详情页可选择任意两个 revision 做按稳定 `block.id` 的 added / removed / changed 对比，并列出变化的字段或数组长度。
 - **Flow layout 切换与 Flow diff**：Flow 块支持 `TB / LR / BT / RL` 切换（按 block 记住选择）；Flow 的变更通过 Block diff 中的 `nodes`/`edges` 长度变化呈现。
 
-这些能力不阻塞“从 DSH 打开 → 阅读 Case → 选择证据追问 → Agent 更新原 Case”的完整闭环，闭环现已可用。
+这些能力不阻塞“从 DSH 打开 → 阅读 Case → 选择发现追问 → Agent 更新原 Case”的完整闭环，闭环现已可用。
 
 ---
 

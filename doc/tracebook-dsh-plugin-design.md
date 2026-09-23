@@ -16,7 +16,7 @@ Tracebook 不是 Exploration Engine，也不是新的 Agent Runtime。
 
 > **AI 调查结果协议（CaseDocument） + 持久化（DSH Storage） + Artifact 管理 + 交互式 Viewer。**
 
-Agent 继续使用原有的 Playwright、代码搜索、日志、Trace、数据库等工具进行调查；当 Agent 认为某些结果值得沉淀时，通过 Tracebook Tool 将结果写成规范化 Block。Tracebook 页面读取这些 Block，并用文本、表格、流程图、时间线、截图、证据卡片等方式展示。
+Agent 继续使用原有的 Playwright、代码搜索、日志、Trace、数据库等工具进行调查；当 Agent 认为某些结果值得沉淀时，通过 Tracebook Tool 将结果写成规范化 Block。Tracebook 页面读取这些 Block，并用文本、表格、流程图、时间线、截图、发现卡片等方式展示。
 
 最重要的产品闭环是：
 
@@ -101,7 +101,7 @@ Agent 已经可以通过各种工具独立完成调查，例如：
 2. 用户持续追问时，前几轮已经确认的业务链路缺少结构化沉淀。
 3. 一次调查可能跨多个 Session，不能只依赖 Session 上下文。
 4. 原始日志、截图、HTTP、Trace 与 Agent 最终理解之间缺少稳定组织方式。
-5. 用户缺少一个比 Chat 更适合查看流程图、表格、截图和证据的页面。
+5. 用户缺少一个比 Chat 更适合查看流程图、表格、截图和发现的页面。
 6. 下一个 Agent / 新 Session 需要低成本读取已经调查出的工程 Context，而不是重新调查。
 
 Tracebook 就是解决这几个问题。
@@ -130,7 +130,7 @@ Reuse
 
 - 保存一次调查主题（Case）。
 - 接收 Agent 主动提交的结构化调查结果。
-- 保存文本、事实、流程、表格、时间线、证据、截图等内容块。
+- 保存文本、事实、流程、表格、时间线、发现、截图等内容块。
 - 保存 Screenshot / Log / HTTP / Trace 等大体积 Artifact。
 - 允许同一个 Case 持续增量更新。
 - 给 Vue 页面提供稳定的数据协议。
@@ -184,7 +184,7 @@ slide.generate
 slide-worker
 ```
 
-页面同时可以展示接口表、关键截图和证据。
+页面同时可以展示接口表、关键截图和发现。
 
 ## 3.2 持续追问、持续补充
 
@@ -687,7 +687,7 @@ Agent 可以根据调查目标自行决定是否生成 Timeline。
 
 ## 7.6 Evidence Block
 
-Evidence 的目标不是建立复杂证据数据库，而是告诉用户：
+Evidence 的目标不是建立复杂的发现数据库，而是告诉用户：
 
 > “AI 为什么得出这个结论？”
 
@@ -695,7 +695,7 @@ Evidence 的目标不是建立复杂证据数据库，而是告诉用户：
 {
   "id": "key-evidence",
   "type": "evidence",
-  "title": "关键证据",
+  "title": "关键发现",
   "items": [
     {
       "id": "ev-http-generate",
@@ -1195,7 +1195,7 @@ Right Sidebar Browser
 ├────────────────────────────────────────────────────────────┤
 │ 页面截图 [Gallery Block]                                   │
 ├────────────────────────────────────────────────────────────┤
-│ 关键证据 [Evidence Block]                                  │
+│ 关键发现 [Evidence Block]                                  │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -1219,36 +1219,39 @@ Inspector 使用 Drawer
 
 ## 13.1 Viewer 视觉规范
 
-Viewer 是工程评审界面，不是演示稿。视觉系统借用 [Archify](https://github.com/tt-a1i/archify) 的 "Evidence Console" 语言：**平面色块、1px 结构描边、mono 前置排版、语义色只承载含义**。背景保持单一纯色，不使用渐变、光晕、玻璃拟态、装饰性大标题。
+Viewer 是工程评审界面，不是演示稿。视觉系统借用 [Archify](https://github.com/tt-a1i/archify) 的 "Investigation Console" 语言：**白色页面、平面色块、1px 结构描边、mono 前置排版、语义色只承载含义**。背景保持单一纯白，不使用渐变、光晕、玻璃拟态、装饰性大标题。
 
 实施位置：`web/src/styles.css` 是唯一样式来源，所有令牌定义在 `:root`。
 
 ### 令牌
 
 ```text
-canvas   #020617   页面底色（纯色，无渐变）
-panel    #0f172a   卡片 / 面板
-panel-2  #0b1220   凹陷面：代码块、表头、画布
-ink      #e2e8f0 / #f8fafc   正文 / 强调
-muted    #94a3b8   dim #64748b   faint #475569
-line     #1e293b   line-strong #334155
+canvas   #ffffff   页面底色（纯白，无渐变）
+panel    #ffffff   卡片 / 面板
+panel-2  #f8fafc   凹陷面：代码块、表头、画布
+panel-3  #f1f5f9   浮层内 hover 面
+ink      #1e293b / #0f172a   正文 / 强调
+muted    #475569   dim #64748b   faint #94a3b8
+line     #e2e8f0   line-strong #cbd5e1
 ```
 
 圆角只有三档：`3px` 控件内元素、`6px` 控件与面板、`8px` 对话框。层级靠 **描边 + 明度** 建立；静止状态不使用阴影（浮层除外，如 Flow Inspector 与 Ask 对话框）。
 
 ### 语义色
 
-七个语义槽位与 Archify 一致，节点、证据、Artifact、状态、diff 共用同一套词汇，颜色不可互换：
+七个语义槽位与 Archify 一致，节点、发现、Artifact、状态、diff 共用同一套词汇，颜色不可互换：
 
 | 槽位 | 值 | 含义 | 节点 kind（示例） |
 | --- | --- | --- | --- |
-| frontend | `#22d3ee` | 用户界面、页面、截图 | `page` `ui` `screenshot` |
-| backend | `#34d399` | 服务端、接口、Trace | `api` `service` `worker` `http` |
-| database | `#a78bfa` | 存储、代码 | `database` `storage` `code` |
-| messagebus | `#fb923c` | 队列、事件、日志 | `queue` `topic` `log` |
-| cloud | `#fbbf24` | 基础设施、网关、时间戳 | `gateway` `lb` `config` |
-| security | `#fb7185` | 鉴权、策略、错误 | `auth` `policy` |
-| external | `#94a3b8` | 未归类兜底（不使用哈希随机色） | 其它 |
+| frontend | `#0e7490` | 用户界面、页面、截图 | `page` `ui` `screenshot` |
+| backend | `#047857` | 服务端、接口、Trace | `api` `service` `worker` `http` |
+| database | `#6d28d9` | 存储、代码 | `database` `storage` `code` |
+| messagebus | `#c2410c` | 队列、事件、日志 | `queue` `topic` `log` |
+| cloud | `#b45309` | 基础设施、网关、时间戳 | `gateway` `lb` `config` |
+| security | `#be123c` | 鉴权、策略、错误 | `auth` `policy` |
+| external | `#64748b` | 未归类兜底（不使用哈希随机色） | 其它 |
+
+语义色统一取 700 阶梯度，保证在白色页面上仍满足正文对比度。
 
 实现方式是 `.kind-<name> { --kind: <槽位> }`；消费方一律写 `var(--kind, var(--external))` 自带兜底，避免规则顺序互相覆盖。
 
@@ -1257,7 +1260,7 @@ line     #1e293b   line-strong #334155
 - 单一字族策略：chrome、标签、ID、数值、表格、Flow 节点全部 mono（`JetBrains Mono` → 系统等宽）；只有 Markdown 正文、Case summary、Timeline 标题使用系统 sans。
 - 四级层次：`20–22px/600` 页面与 Case 标题 → `14–15px/600` 区块标题 → `12–13px/400` 正文 → `9–10px/700 + .1em` 大写标签；**不再出现 `clamp(44px, 6vw, 78px)` 这类展示型标题**。
 - 密度基线：正文 13px、表格 11.5px、单元格内边距 `7px 10px`、面板内边距 12–14px、区块段间距 22px。
-- Case 列表是**八列高密度表格**（Case / Type / Environment / Status / Blocks / Evid. / Rev / Updated）加一条四项统计条，不再是 3 列卡片墙；窄屏按 `.col-optional` 逐列收起，不重建第二套界面。
+- Case 列表是**八列高密度表格**（Case / Type / Environment / Status / Blocks / Artifacts / Rev / Updated）加一条四项统计条，不再是 3 列卡片墙；窄屏按 `.col-optional` 逐列收起，不重建第二套界面。
 
 ### Flow 画布
 

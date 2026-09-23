@@ -85,7 +85,7 @@ onMounted(async () => {
     <header class="page-head">
       <div>
         <h1>Cases</h1>
-        <p>Agent 沉淀的调查结论、调用链与证据，跨 Session 持续生长。</p>
+        <p>Agent 沉淀的调查结论、调用链与关键发现，跨 Session 持续生长。</p>
       </div>
       <span class="page-spacer" />
       <dl class="stat-strip">
@@ -140,7 +140,7 @@ onMounted(async () => {
               <th class="col-optional">Environment</th>
               <th>Status</th>
               <th class="num">Blocks</th>
-              <th class="num col-optional">Evid.</th>
+              <th class="num col-optional">Artifacts</th>
               <th class="num">Rev</th>
               <th class="col-optional">Updated</th>
             </tr>

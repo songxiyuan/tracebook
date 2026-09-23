@@ -137,9 +137,9 @@ watch(direction, layout)
             <small v-if="data.kind">{{ data.kind }}</small>
           </div>
         </template>
-        <Background pattern-color="#1e293b" :gap="20" />
+        <Background pattern-color="#e2e8f0" :gap="20" />
         <Controls />
-        <MiniMap pannable zoomable :width="150" :height="98" node-color="#334155" mask-color="rgba(2,6,23,.72)" />
+        <MiniMap pannable zoomable :width="150" :height="98" node-color="#94a3b8" mask-color="rgba(15,23,42,.08)" />
       </VueFlow>
     </div>
     <aside v-if="selected" class="flow-inspector">

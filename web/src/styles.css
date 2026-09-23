@@ -1,39 +1,42 @@
 /*
  * Tracebook Viewer — visual system.
  *
- * Derived from the Archify "Evidence Console" design language: flat tonal
- * surfaces, one-pixel structural borders, mono-forward chrome, and a fixed
- * semantic color vocabulary. Color identifies meaning, never decoration.
- * No gradients, no glow, no decorative display type, no oversized hero copy.
+ * Derived from the Archify "Investigation Console" design language: a white
+ * page, flat tonal insets, one-pixel structural borders, mono-forward chrome,
+ * and a fixed semantic color vocabulary. Color identifies meaning, never
+ * decoration. No gradients, no glow, no decorative display type, no oversized
+ * hero copy.
  */
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', 'PingFang SC', 'Microsoft YaHei', sans-serif;
 
-  /* Canvas and containment ladder */
-  --canvas: #020617;
-  --panel: #0f172a;
-  --panel-2: #0b1220;
-  --panel-3: #131c31;
-  --ink: #e2e8f0;
-  --ink-strong: #f8fafc;
-  --muted: #94a3b8;
+  /* Canvas and containment ladder — a white page with tonal insets, so the
+     hierarchy is carried by borders and lightness rather than by a dark base. */
+  --canvas: #ffffff;
+  --panel: #ffffff;
+  --panel-2: #f8fafc;
+  --panel-3: #f1f5f9;
+  --ink: #1e293b;
+  --ink-strong: #0f172a;
+  --muted: #475569;
   --dim: #64748b;
-  --faint: #475569;
-  --line: #1e293b;
-  --line-strong: #334155;
+  --faint: #94a3b8;
+  --line: #e2e8f0;
+  --line-strong: #cbd5e1;
 
-  /* Semantic signals — one meaning each, never interchangeable */
-  --frontend: #22d3ee;
-  --backend: #34d399;
-  --database: #a78bfa;
-  --cloud: #fbbf24;
-  --security: #fb7185;
-  --messagebus: #fb923c;
-  --external: #94a3b8;
+  /* Semantic signals — one meaning each, never interchangeable. Tints are the
+     700 step so every signal keeps contrast on white. */
+  --frontend: #0e7490;
+  --backend: #047857;
+  --database: #6d28d9;
+  --cloud: #b45309;
+  --security: #be123c;
+  --messagebus: #c2410c;
+  --external: #64748b;
 
   --r-sm: 3px;
   --r-md: 6px;
@@ -68,13 +71,13 @@ code, kbd, pre, samp { font-family: var(--font-mono); }
 img { max-width: 100%; }
 
 :focus-visible { outline: 2px solid var(--frontend); outline-offset: 2px; }
-::selection { background: rgba(34, 211, 238, .24); }
+::selection { background: rgba(14, 116, 144, .18); }
 
 * { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--line); border: 2px solid transparent; background-clip: content-box; border-radius: var(--r-pill); }
-::-webkit-scrollbar-thumb:hover { background: var(--line-strong); background-clip: content-box; }
+::-webkit-scrollbar-thumb { background: var(--line-strong); border: 2px solid transparent; background-clip: content-box; border-radius: var(--r-pill); }
+::-webkit-scrollbar-thumb:hover { background: var(--faint); background-clip: content-box; }
 
 /* --- Chrome ---------------------------------------------------------------- */
 
@@ -158,7 +161,7 @@ img { max-width: 100%; }
   transition: border-color .15s, background .15s;
 }
 
-.ask-button:hover { border-color: var(--frontend); background: rgba(34, 211, 238, .08); }
+.ask-button:hover { border-color: var(--frontend); background: rgba(14, 116, 144, .08); }
 
 /* Compact metadata capsules and tag badges */
 .case-meta span,
@@ -177,8 +180,8 @@ img { max-width: 100%; }
   white-space: nowrap;
 }
 
-.tag { color: var(--frontend); border-color: rgba(34, 211, 238, .35); }
-.session-chip { color: var(--cloud) !important; border-color: rgba(251, 191, 36, .35) !important; }
+.tag { color: var(--frontend); border-color: rgba(14, 116, 144, .35); }
+.session-chip { color: var(--cloud) !important; border-color: rgba(180, 83, 9, .35) !important; }
 
 .status {
   display: inline-flex;
@@ -424,7 +427,7 @@ img { max-width: 100%; }
 
 .block-kicker span:first-child {
   padding: 2px 6px;
-  border: 1px solid rgba(34, 211, 238, .3);
+  border: 1px solid rgba(14, 116, 144, .3);
   border-radius: var(--r-sm);
   color: var(--frontend);
 }
@@ -435,7 +438,7 @@ img { max-width: 100%; }
 
 /* --- Markdown -------------------------------------------------------------- */
 
-.markdown-body { max-width: 880px; color: #cbd5e1; font-size: 13px; line-height: 1.7; }
+.markdown-body { max-width: 880px; color: #334155; font-size: 13px; line-height: 1.7; }
 .markdown-body > :first-child { margin-top: 0; }
 .markdown-body > :last-child { margin-bottom: 0; }
 .markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 {
@@ -449,7 +452,7 @@ img { max-width: 100%; }
 .markdown-body p { margin: 10px 0; }
 .markdown-body ul, .markdown-body ol { margin: 10px 0; padding-left: 20px; }
 .markdown-body li { margin: 3px 0; }
-.markdown-body a { color: var(--frontend); text-decoration: none; border-bottom: 1px solid rgba(34, 211, 238, .35); }
+.markdown-body a { color: var(--frontend); text-decoration: none; border-bottom: 1px solid rgba(14, 116, 144, .35); }
 .markdown-body a:hover { border-bottom-color: var(--frontend); }
 .markdown-body pre {
   margin: 12px 0;
@@ -461,7 +464,7 @@ img { max-width: 100%; }
   font-size: 11.5px;
   line-height: 1.6;
 }
-.markdown-body pre code { color: #cbd5e1; }
+.markdown-body pre code { color: #334155; }
 .markdown-body :not(pre) > code {
   padding: 1px 4px;
   border: 1px solid var(--line);
@@ -530,13 +533,13 @@ table { width: 100%; border-collapse: collapse; }
 .table-wrap tbody td {
   padding: 7px 10px;
   border-bottom: 1px solid var(--line);
-  color: #cbd5e1;
+  color: #334155;
   font: 400 11.5px/1.5 var(--font-mono);
   vertical-align: top;
 }
 
 .table-wrap tbody tr:last-child td { border-bottom: 0; }
-.table-wrap tbody tr:hover td { background: rgba(148, 163, 184, .06); }
+.table-wrap tbody tr:hover td { background: rgba(15, 23, 42, .03); }
 
 /* --- Timeline -------------------------------------------------------------- */
 
@@ -656,7 +659,7 @@ table { width: 100%; border-collapse: collapse; }
   font: 500 10px/1 var(--font-mono);
   transition: border-color .15s, color .15s;
 }
-.flow-toolbar button.active { border-color: var(--frontend); color: var(--frontend); background: rgba(34, 211, 238, .08); }
+.flow-toolbar button.active { border-color: var(--frontend); color: var(--frontend); background: rgba(14, 116, 144, .08); }
 
 .flow-inspector {
   position: absolute;
@@ -669,8 +672,8 @@ table { width: 100%; border-collapse: collapse; }
   padding: 12px 14px 14px;
   border: 1px solid var(--line-strong);
   border-radius: var(--r-md);
-  background: rgba(15, 23, 42, .97);
-  box-shadow: 0 18px 48px rgba(2, 6, 23, .5);
+  background: rgba(255, 255, 255, .98);
+  box-shadow: 0 18px 48px rgba(15, 23, 42, .14);
 }
 
 .flow-inspector > button {
@@ -748,7 +751,7 @@ table { width: 100%; border-collapse: collapse; }
 .vue-flow__handle { width: 5px !important; height: 5px !important; border: 1px solid var(--line-strong) !important; background: var(--panel-2) !important; }
 
 .vue-flow__minimap { background: var(--panel-2) !important; border: 1px solid var(--line); }
-.vue-flow__minimap-mask { fill: rgba(2, 6, 23, .72) !important; }
+.vue-flow__minimap-mask { fill: rgba(15, 23, 42, .08) !important; }
 .vue-flow__controls { box-shadow: none !important; border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; }
 .vue-flow__controls-button {
   width: 22px !important;
@@ -812,7 +815,7 @@ table { width: 100%; border-collapse: collapse; }
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   background: var(--panel-2);
-  color: #cbd5e1;
+  color: #334155;
   font: 400 11px/1.6 var(--font-mono);
   white-space: pre-wrap;
 }
@@ -893,9 +896,9 @@ table { width: 100%; border-collapse: collapse; }
   letter-spacing: .1em;
   text-transform: uppercase;
 }
-.diff-list li.added .diff-badge { border-color: rgba(52, 211, 153, .4); color: var(--backend); }
-.diff-list li.removed .diff-badge { border-color: rgba(251, 113, 133, .4); color: var(--security); }
-.diff-list li.changed .diff-badge { border-color: rgba(251, 191, 36, .4); color: var(--cloud); }
+.diff-list li.added .diff-badge { border-color: rgba(4, 120, 87, .4); color: var(--backend); }
+.diff-list li.removed .diff-badge { border-color: rgba(190, 18, 60, .4); color: var(--security); }
+.diff-list li.changed .diff-badge { border-color: rgba(180, 83, 9, .4); color: var(--cloud); }
 
 /* --- Notices and states ---------------------------------------------------- */
 
@@ -951,7 +954,7 @@ table { width: 100%; border-collapse: collapse; }
   display: grid;
   place-items: center;
   padding: 20px;
-  background: rgba(2, 6, 23, .74);
+  background: rgba(15, 23, 42, .32);
 }
 
 .ask-dialog {
@@ -962,7 +965,7 @@ table { width: 100%; border-collapse: collapse; }
   border: 1px solid var(--line-strong);
   border-radius: var(--r-lg);
   background: var(--panel);
-  box-shadow: 0 24px 64px rgba(2, 6, 23, .6);
+  box-shadow: 0 24px 64px rgba(15, 23, 42, .18);
 }
 
 .ask-dialog header { display: flex; align-items: center; gap: 10px; }
@@ -998,7 +1001,7 @@ table { width: 100%; border-collapse: collapse; }
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   background: var(--panel-2);
-  color: #cbd5e1;
+  color: #334155;
   font: 400 10.5px/1.6 var(--font-mono);
   white-space: pre-wrap;
 }
@@ -1010,11 +1013,11 @@ table { width: 100%; border-collapse: collapse; }
   padding: 6px 14px;
   border: 1px solid var(--frontend);
   border-radius: var(--r-md);
-  background: rgba(34, 211, 238, .12);
+  background: rgba(14, 116, 144, .10);
   color: var(--frontend);
   font: 500 11.5px/1.3 var(--font-mono);
 }
-.ask-dialog footer button:not(.ghost):hover { background: rgba(34, 211, 238, .2); }
+.ask-dialog footer button:not(.ghost):hover { background: rgba(14, 116, 144, .18); }
 .ask-dialog footer button:disabled { opacity: .55; }
 
 /* --- Narrow screens: contain, do not rebuild ------------------------------- */
@@ -1033,7 +1036,7 @@ table { width: 100%; border-collapse: collapse; }
     background: var(--panel);
     color: var(--ink-strong);
     font: 500 11.5px/1.3 var(--font-mono);
-    box-shadow: 0 12px 32px rgba(2, 6, 23, .55);
+    box-shadow: 0 12px 32px rgba(15, 23, 42, .16);
   }
   .outline {
     display: none;

@@ -13,7 +13,7 @@ Tracebook 是运行在 DeepSeek Harness（DSH）上的工程调查结果组织�
 - 文件 Artifact Store：原子写入 Screenshot、Log、HTTP、Trace 等原始资料，Case 仅保存元数据与引用。
 - 同源只读 API：Case List、Case Detail、Blocks、Artifact 内容、Session 关联与 Revision 历史。
 - Vue 3 Viewer：Case 列表/搜索、Block 搜索、Case 文档、七种 Block Renderer、表格筛选、Artifact 类型筛选与内嵌预览、Gallery、Evidence。
-- 视觉系统：Archify 风格的平面 + 1px 描边 + mono 前置 + 语义色，纯色背景与高密度信息布局（规范见设计文档 13.1）。
+- 视觉系统：白色页面 + Archify 风格的平面 + 1px 描边 + mono 前置 + 语义色，高密度信息布局（规范见设计文档 13.1）。
 - Vue Flow + ELK.js：流程渲染、自动布局、缩放、Minimap、Node Inspector 与 Layout 切换。
 - 更新提示：轮询 revision，提示新版本并在刷新时保留滚动位置与 Flow 选中项。
 - `Ask about this`：从 Flow Node / Evidence 携带上下文回到当前 DSH 对话输入框（只填入草稿，不自动发送）。

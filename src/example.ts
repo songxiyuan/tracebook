@@ -69,7 +69,7 @@ export async function seedExampleCase(service: TracebookService): Promise<string
         id: 'backend-flow',
         type: 'flow',
         title: '端到端调用链',
-        description: '点击节点可查看职责、关联 Block 与原始证据。',
+        description: '点击节点可查看职责、关联 Block 与原始记录。',
         direction: 'LR',
         nodes: [
           { id: 'page', label: 'PPT Page', kind: 'page', details: '收集主题与模板参数，订阅任务 SSE。', artifactRefs: ['demo-screenshot'], relatedBlockIds: ['page-gallery'] },
@@ -128,7 +128,7 @@ export async function seedExampleCase(service: TracebookService): Promise<string
       {
         id: 'key-evidence',
         type: 'evidence',
-        title: '关键证据',
+        title: '关键发现',
         items: [
           { id: 'ev-screen', kind: 'screenshot', title: 'PPT 创建页面', summary: '页面提供主题输入框和 Generate PPT 操作。', artifactRef: 'demo-screenshot' },
           { id: 'ev-http', kind: 'http', title: '创建任务 HTTP 记录', summary: 'POST 返回 202 与 job_id，证明同步请求只创建任务。', artifactRef: 'demo-http' },
