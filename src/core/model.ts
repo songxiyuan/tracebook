@@ -124,7 +124,14 @@ export const apiTimingSchema = z.object({
   p95: z.number().nonnegative().optional(),
   p99: z.number().nonnegative().optional(),
   max: z.number().nonnegative().optional(),
-  /** Round-trip phases, matching the HAR `timings` vocabulary. */
+  /**
+   * Round-trip phases, in the reader-facing vocabulary.
+   *
+   * `ttfb` and `download` are the honest names for the HAR `wait` and
+   * `receive` phases; HAR's `ssl` is a sub-interval of `connect` (kept there
+   * for 1.1 compatibility), so it never becomes a sibling segment, and
+   * `blocked` / `send` are deliberately not modelled yet.
+   */
   breakdown: z.object({
     dns: z.number().nonnegative().optional(),
     connect: z.number().nonnegative().optional(),

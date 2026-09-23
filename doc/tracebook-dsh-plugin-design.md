@@ -834,7 +834,7 @@ estimated  Agent 推断，不是测量值
 2. `estimated` 在 Viewer 中单独标记为「估算」，与实测在视觉上不可混淆。
 3. `trace` / `har` / `log` 建议同时给 `artifactRef`，让每个数字都能点回原始证据。
 4. `timing` 至少要有一个 `samples` / `p50` / `p95` / `p99` / `max` / `breakdown`，空对象视为无效。
-5. `breakdown` 沿用 HAR 的相位词汇（`dns` / `connect` / `ttfb` / `download`），单位统一 ms。
+5. `breakdown` 是四个面向读者的相位，与 HAR `timings` 的对应关系是 `dns` → `dns`、`connect` → `connect`、`ttfb` → `wait`、`download` → `receive`；HAR 的 `ssl` 是 `connect` 的子区间（为兼容 1.1 而并入），因此不单独成段，`blocked` / `send` 暂不建模。单位统一 ms。
 
 ### 7.8.2 Viewer
 
