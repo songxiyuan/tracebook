@@ -1376,6 +1376,8 @@ metadata
 
 Graph 负责导航，详情仍来自 CaseDocument / Artifact。
 
+`Artifacts` 区按 Artifact 类型分流：图片类（`mimeType` 以 `image/` 开头，或 `kind` 为 `screenshot` / `image` / `png`）内嵌缩略图并链接原图，其余类型保持原始链接；Artifact 缺失或没有 payload 时回退为链接，不渲染破图。这仍然只是读取既有 `artifactRefs`，不新增字段。
+
 ## 15.3 不要做“大一统 Graph”
 
 Agent 可以生成多个 Flow Block：

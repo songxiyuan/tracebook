@@ -717,6 +717,13 @@ table { width: 100%; border-collapse: collapse; }
 .inspector-links a { color: var(--frontend); font: 400 11px/1.5 var(--font-mono); text-decoration: none; }
 .inspector-links a:hover { text-decoration: underline; }
 
+/* Screenshots attached to a Flow node preview inline in the Inspector; the raw
+   artifact stays one click away and the caption names it. */
+.inspector-shot { margin: 0; overflow: hidden; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); }
+.inspector-shot a { display: block; }
+.inspector-shot img { display: block; width: 100%; max-height: 190px; object-fit: contain; background: var(--panel-2); }
+.inspector-shot figcaption { padding: 5px 7px; border-top: 1px solid var(--line); color: var(--muted); font: 400 10px/1.5 var(--font-mono); overflow-wrap: anywhere; }
+
 /* Flow nodes: semantic border, colored title, muted kind caption. The kind class
    supplies --kind; every use carries the neutral fallback itself so rule order
    can never shadow a semantic category. */

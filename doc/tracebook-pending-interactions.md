@@ -12,7 +12,8 @@
 | P1 | Ask about this | 已完成 | `web/src/components/blocks/FlowBlock.vue`、`EvidenceBlock.vue`、`CaseDetail.vue`、`src/client/bridge.ts` |
 | P1 | 更新提示 | 已完成 | `web/src/pages/CaseDetail.vue`、`src/host/http.ts` |
 | P2 | Block 搜索 | 已完成 | `web/src/pages/CaseDetail.vue` |
-| P2 | Artifact 类型筛选与内嵌预览 | 已完成 | `web/src/components/ArtifactPanel.vue` |
+| P2 | Artifact 类型筛选与内嵌预览 | 已完成 | `web/src/components/ArtifactPanel.vue`、`web/src/artifact-kind.ts` |
+| P2 | Flow Node Artifact 缩略图 | 已完成 | `web/src/components/blocks/FlowBlock.vue`、`web/src/artifact-kind.ts` |
 | P2 | Revision 历史与 Block diff | 已完成 | `src/core/model.ts`、`src/host/storage.ts`、`web/src/components/RevisionHistory.vue` |
 | P2 | Flow layout 切换与 Flow diff | 已完成 | `web/src/components/blocks/FlowBlock.vue`、`RevisionHistory.vue` |
 
@@ -141,7 +142,29 @@
 
 ---
 
-## 4. 页面更新提示
+## 4. Flow Node Artifact 缩略图
+
+### 交互
+
+- Flow Node Inspector 的 `Artifacts` 区把节点 `artifactRefs` 对着 Case 的 artifacts 解析：图片类 Artifact（`mimeType` 以 `image/` 开头，或 `kind` 为 `screenshot` / `image` / `png`）直接内嵌缩略图，点击缩略图在新标签页打开原图。
+- 非图片 Artifact 仍然只渲染原始链接；Artifact 无法加载（引用不存在、或部署开启了 `metadataOnlyArtifacts` 没有 payload）时回退为链接，不显示破图。
+- 协议没有变化：`artifactRefs` 本来就是 `flowNodeSchema` 的字段，Agent 不需要写新字段，也不需要新的 Tool。
+
+### 实现位置
+
+- `web/src/components/blocks/FlowBlock.vue`：解析引用、按需渲染缩略图与失败回退。
+- `web/src/artifact-kind.ts`：`isImageArtifact`，与 `ArtifactPanel` 共用同一套图片判定。
+- `web/src/styles.css`：`.inspector-shot`。
+
+### 验收
+
+1. 节点带截图 `artifactRefs` 时，Inspector 内直接看到缩略图，无需离开页面。
+2. 引用非图片或加载失败时退化为原始链接，Inspector 不出现破图。
+3. 未修改 Block Schema、Tool 与 HTTP API；Artifact 面板行为不变。
+
+---
+
+## 5. 页面更新提示
 
 ### 交互
 
@@ -162,7 +185,7 @@ Case 已更新到 Revision 4    [刷新内容]
 
 ---
 
-## 5. P2 后续项
+## 6. P2 后续项
 
 - **Block 标题与正文搜索**：详情页 Outline 中的搜索框按 Block 标题、描述与正文内容过滤，并给出匹配结果；命中为空时提供清空入口。
 - **Artifact 类型筛选与内嵌预览**：`ArtifactPanel` 按 `kind` 统计与筛选；图片内嵌展示，文本/JSON/日志/HTTP/Trace 折叠展开为 `pre` 预览，其余类型提供原始文件链接。
@@ -173,7 +196,7 @@ Case 已更新到 Revision 4    [刷新内容]
 
 ---
 
-## 6. 只读 API 增量
+## 7. 只读 API 增量
 
 ```text
 GET /tracebook/api/sessions/:sessionId/cases
@@ -186,7 +209,7 @@ GET /tracebook/api/cases/:id/revisions/:revision
 
 ---
 
-## 7. 验证
+## 8. 验证
 
 ```bash
 npm run typecheck   # Vue + Client Plugin + Host 三层类型检查

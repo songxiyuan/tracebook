@@ -7,6 +7,7 @@ import { MiniMap } from '@vue-flow/minimap'
 import ELK from 'elkjs/lib/elk.bundled.js'
 import type { Artifact, FlowBlock } from '../../../../src/core/model'
 import { artifactUrl } from '../../api'
+import { isImageArtifact } from '../../artifact-kind'
 import { rememberedNodeFor, rememberFlowSelection } from '../../selection'
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
@@ -26,6 +27,29 @@ const nodes = shallowRef<DisplayNode[]>([])
 const edges = shallowRef<DisplayEdge[]>([])
 const selectedId = ref<string | undefined>(rememberedNodeFor(props.block.id))
 const selected = computed(() => props.block.nodes.find((node) => node.id === selectedId.value))
+
+/**
+ * The node's refs resolved against the case's artifacts. The protocol stays the
+ * same (`artifactRefs` is already part of the node schema); the Inspector only
+ * reads it, so an Agent needs no new field to attach a screenshot to a node.
+ */
+const selectedArtifacts = computed(() => (selected.value?.artifactRefs ?? []).map((id) => ({
+  id,
+  artifact: props.artifacts.find((artifact) => artifact.id === id),
+})))
+
+// A ref can point at an artifact whose payload this deployment never stored
+// (metadata-only), so a failed load falls back to the raw link instead of a
+// broken image.
+const failedImages = ref<string[]>([])
+
+function showsImage(id: string, artifact: Artifact | undefined) {
+  return isImageArtifact(artifact) && !failedImages.value.includes(id)
+}
+
+function markImageFailed(id: string) {
+  if (!failedImages.value.includes(id)) failedImages.value = [...failedImages.value, id]
+}
 const { fitView } = useVueFlow()
 const elk = new ELK()
 
@@ -114,6 +138,7 @@ function restoreSelection() {
 
 onMounted(layout)
 watch(() => props.block, async () => { restoreSelection(); await layout() }, { deep: true })
+watch(selectedId, () => { failedImages.value = [] })
 watch(direction, layout)
 </script>
 
@@ -156,7 +181,20 @@ watch(direction, layout)
       </div>
       <div v-if="selected.artifactRefs?.length" class="inspector-links">
         <strong>Artifacts</strong>
-        <a v-for="id in selected.artifactRefs" :key="id" :href="artifactUrl(id)" target="_blank">{{ id }} ↗</a>
+        <template v-for="entry in selectedArtifacts" :key="entry.id">
+          <figure v-if="showsImage(entry.id, entry.artifact)" class="inspector-shot">
+            <a :href="artifactUrl(entry.id)" target="_blank">
+              <img
+                :src="artifactUrl(entry.id)"
+                :alt="entry.artifact?.name || entry.id"
+                loading="lazy"
+                @error="markImageFailed(entry.id)"
+              />
+            </a>
+            <figcaption>{{ entry.artifact?.name || entry.id }} ↗</figcaption>
+          </figure>
+          <a v-else :href="artifactUrl(entry.id)" target="_blank">{{ entry.id }} ↗</a>
+        </template>
       </div>
       <button
         class="ask-button"

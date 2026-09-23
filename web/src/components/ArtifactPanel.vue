@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import type { Artifact } from '../../../src/core/model'
 import { artifactUrl } from '../api'
+import { isImageArtifact } from '../artifact-kind'
 
 const props = defineProps<{ artifacts: Artifact[] }>()
 
@@ -21,12 +22,8 @@ const filtered = computed(() => (kind.value
   ? props.artifacts.filter((artifact) => artifact.kind === kind.value)
   : props.artifacts))
 
-function isImage(artifact: Artifact) {
-  return artifact.mimeType?.startsWith('image/') === true || ['screenshot', 'image', 'png'].includes(artifact.kind)
-}
-
 function isText(artifact: Artifact) {
-  if (isImage(artifact)) return false
+  if (isImageArtifact(artifact)) return false
   return artifact.mimeType?.startsWith('text/') === true
     || artifact.mimeType?.includes('json') === true
     || ['log', 'http', 'trace', 'code', 'json', 'text'].includes(artifact.kind)
@@ -69,7 +66,7 @@ function toggle(artifact: Artifact) {
           <small>{{ artifact.summary || artifact.mimeType || artifact.id }}</small>
         </button>
         <div v-if="openId === artifact.id" class="artifact-body">
-          <img v-if="isImage(artifact)" :src="artifactUrl(artifact.id)" :alt="artifact.name || artifact.id" loading="lazy" />
+          <img v-if="isImageArtifact(artifact)" :src="artifactUrl(artifact.id)" :alt="artifact.name || artifact.id" loading="lazy" />
           <p v-else-if="loading" class="artifact-note">Loading…</p>
           <p v-else-if="failure" class="artifact-note error">{{ failure }}</p>
           <pre v-else-if="contents[artifact.id] !== undefined">{{ contents[artifact.id] }}</pre>
