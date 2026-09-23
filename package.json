@@ -29,7 +29,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "vue-tsc --noEmit -p web/tsconfig.json && tsc --noEmit -p src/client/tsconfig.json && tsc --noEmit",
-    "verify": "npm run typecheck && npm test && npm run build"
+    "verify": "npm run typecheck && npm run build && npm test"
   },
   "dsh": {
     "bundle": {

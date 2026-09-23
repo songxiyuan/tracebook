@@ -161,17 +161,18 @@ npm run build:client   # → dist/client.js + dist/client.js.map
 npm run typecheck
 npm test
 npm run build
-npm run verify
+npm run verify         # typecheck → build → test（built-viewer 测试需要 dist/web）
 ```
 
 ```text
-src/core/          领域模型、Schema、Repository、Service
+src/core/          领域模型、Schema、Repository、Service、HAR 匹配
 src/host/          DSH Storage、Tool、HTTP、Artifact adapter
 src/client/        DSH 薄 Client Plugin（入口、Tab、追问桥接）
 web/src/           Vue Viewer
 scripts/           Client bundle 构建
-tests/             Core 与 Artifact Store 测试
+tests/             Core、HTTP 路由、HAR 匹配与构建产物测试
 doc/               设计文档
+docs/research/     调研与决策记录
 ```
 
 完整架构与产品边界见 [设计方案](doc/tracebook-dsh-plugin-design.md)，交互补齐的范围、落地位置与验收见 [交互补齐说明](doc/tracebook-pending-interactions.md)。
