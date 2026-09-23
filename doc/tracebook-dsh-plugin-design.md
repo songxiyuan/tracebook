@@ -51,7 +51,7 @@ Agent 读取已有 Tracebook Context 后继续调查
 - Viewer：Case List、Case Detail、全部 Block Renderer、Table 筛选、Evidence/Gallery Artifact 访问、Vue Flow + ELK.js 自动布局与 Node Inspector。
 - 工程化：TypeScript 严格检查、Vitest 覆盖核心闭环、Vite/tsup 生产构建和 DSH Bundle manifest。
 - 集成验证：已在 DSH `0.1.5-rc.3` Web Profile 中完成插件安装、Domain Storage 持久化、同源 API、SPA 路由和 Artifact 读取验证。
-- 完整案例：可通过 `seedExampleCase` 幂等写入覆盖 8 类 Block 与 Screenshot/HTTP/Trace/Code 四类 Artifact 的 mock Case，用于开箱验证和演示。
+- 完整案例：可通过 `seedExampleCase` 幂等写入覆盖 8 类 Block 与 Screenshot/HTTP/Trace/Code/HAR 五类 Artifact 的 mock Case，用于开箱验证和演示。
 
 在此之上已补齐第 16.1 节与 V1.x/V2 中的关键交互：
 
@@ -862,7 +862,11 @@ estimated  Agent 推断，不是测量值
 - 列表按 endpoint 展示 `METHOD path`、Service、输入摘要、输出摘要与主耗时（优先 p95，其次 p50 / max / 最后样本），并显示来源标签与错误率。
 - 行内展开 request 参数与 body、各 response 的状态与示例（均带来源标签）、timing 的 RED 三元组（requests / errors / 分位数）与相位条，以及 Artifact / Related Block 链接。
 - **只有 `expectedMs` 声明过的阈值才会给数字上色**（超出为错误色）；Viewer 不发明阈值。
+- 当 `timing.source` 为 `har` 且 `artifactRef` 指向一个 HAR Artifact 时，展开该 endpoint 会**懒加载**渲染器（`@cloudflare/waterfall`，独立 chunk），按 `(method, path 模板)` 匹配出属于它的请求并画成单次请求瀑布。匹配是 Core 的纯函数（`src/core/har.ts`）：**渲染器只负责画，不负责决定 HAR 里有什么**。
+- HAR 读取失败、内容不是 HAR 文档、或没有任何请求匹配时，**回退到相位汇总条**并显示原因，绝不画空图。
 - 每个 endpoint 提供 `Ask about this`，与 Flow Node / Evidence 一致。
+
+为什么不复用成熟的 OpenAPI 渲染器（以及若确实需要时该选哪个）见 [接口详情与 OpenAPI 渲染器决策记录](../docs/research/openapi-renderer-decision.md)。
 
 ---
 
@@ -896,6 +900,7 @@ interface Artifact {
 ```text
 Screenshot PNG
 HTTP request/response JSON
+HAR 1.2 capture（供 api Block 渲染单次请求瀑布）
 Trace JSON
 Log TXT
 HTML

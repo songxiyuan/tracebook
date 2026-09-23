@@ -183,7 +183,7 @@ Bundle 默认插入一个 `tracebook` 宿主插件。在 `~/.dsh/profiles/web/co
 | `artifactDirectory` | `.tracebook/artifacts`（相对工作目录） | Artifact 文件目录。**建议在多机器/GUI 场景改成绝对路径**，否则数据会跟着工作目录漂移 |
 | `webDirectory` | `dist/index.js` 同级的 `dist/web/` | 自定义已构建 Viewer 目录，一般不用改 |
 | `metadataOnlyArtifacts` | `false` | 只存 Artifact 元数据、不写 payload，用于受限部署与测试 |
-| `seedExampleCase` | `false` | 启动时幂等写入一个覆盖 8 类 Block 与 4 类 Artifact 的示例 Case，用于开箱验证 |
+| `seedExampleCase` | `false` | 启动时幂等写入一个覆盖 8 类 Block 与 5 类 Artifact 的示例 Case，用于开箱验证 |
 
 Case 主数据走 DSH `storage-domain` 路由，Tracebook 不直接依赖 SQLite。`seedExampleCase` 只在首次生效，重复启动是 no-op。
 

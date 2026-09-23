@@ -15,11 +15,80 @@ const screenshotSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="1280" heig
   <rect x="920" y="292" width="192" height="108" rx="8" fill="#ffd58a" opacity=".9"/><rect x="920" y="426" width="150" height="14" rx="7" fill="#92f2b4"/><rect x="920" y="460" width="192" height="10" rx="5" fill="#587067"/><rect x="920" y="486" width="176" height="10" rx="5" fill="#587067"/>
 </svg>`
 
+/**
+ * A HAR 1.2 capture for the download endpoint.
+ *
+ * `entry.time` must equal the sum of the non-`-1` timings, so the phase numbers
+ * here add up to `time` by construction (HAR treats `ssl` as a sub-interval of
+ * `connect`, not a sibling, so it is not added again).
+ */
+export const EXAMPLE_HAR_DOCUMENT = {
+  log: {
+    version: '1.2',
+    creator: { name: 'Tracebook mock capture', version: '1.0' },
+    browser: { name: 'Chrome', version: '140.0' },
+    entries: [
+      {
+        startedDateTime: '2026-09-23T02:15:00.000Z',
+        time: 58,
+        request: {
+          method: 'GET',
+          url: 'https://studio.example.com/api/slides/jobs/job_mock_01/download',
+          httpVersion: 'HTTP/2',
+          headers: [{ name: 'accept', value: 'application/json' }],
+          cookies: [],
+          queryString: [],
+          headersSize: 148,
+          bodySize: 0,
+        },
+        response: {
+          status: 302,
+          statusText: 'Found',
+          httpVersion: 'HTTP/2',
+          headers: [{ name: 'location', value: 'https://cdn.example.com/slides/job_mock_01.pptx?sig=mock' }],
+          cookies: [],
+          content: { size: 0, mimeType: 'text/plain' },
+          redirectURL: 'https://cdn.example.com/slides/job_mock_01.pptx?sig=mock',
+          headersSize: 168,
+          bodySize: 0,
+        },
+        timings: { blocked: 0, dns: 2, connect: 9, ssl: 4, send: 0, wait: 41, receive: 6 },
+      },
+      {
+        startedDateTime: '2026-09-23T02:16:30.000Z',
+        time: 74,
+        request: {
+          method: 'GET',
+          url: 'https://studio.example.com/api/slides/jobs/job_mock_02/download',
+          httpVersion: 'HTTP/2',
+          headers: [{ name: 'accept', value: 'application/json' }],
+          cookies: [],
+          queryString: [],
+          headersSize: 148,
+          bodySize: 0,
+        },
+        response: {
+          status: 302,
+          statusText: 'Found',
+          httpVersion: 'HTTP/2',
+          headers: [{ name: 'location', value: 'https://cdn.example.com/slides/job_mock_02.pptx?sig=mock' }],
+          cookies: [],
+          content: { size: 0, mimeType: 'text/plain' },
+          redirectURL: 'https://cdn.example.com/slides/job_mock_02.pptx?sig=mock',
+          headersSize: 168,
+          bodySize: 0,
+        },
+        timings: { blocked: 1, dns: 3, connect: 11, ssl: 5, send: 0, wait: 52, receive: 7 },
+      },
+    ],
+  },
+}
+
 export async function seedExampleCase(service: TracebookService): Promise<string> {
   const existing = (await service.listCases()).find((item) =>
     item.type === 'example' && item.title === EXAMPLE_CASE_TITLE,
   )
-  if (existing?.blockCount === 8 && existing.artifactCount === 4) return existing.id
+  if (existing?.blockCount === 8 && existing.artifactCount === 5) return existing.id
 
   const opened = existing
     ? await service.open({ caseId: existing.id, sourceSessionId: 'tracebook-example-seed' })
@@ -198,12 +267,16 @@ export async function seedExampleCase(service: TracebookService): Promise<string
             }],
             timing: {
               source: 'har',
-              sampleSize: 1,
-              samples: [58],
+              sampleSize: 2,
+              samples: [58, 74],
               p50: 58,
+              p95: 74,
+              max: 74,
               breakdown: { dns: 2, connect: 9, ttfb: 41, download: 6 },
-              measuredAt: '2026-09-23T02:15:00.000Z',
-              note: '来自一次浏览器 HAR 导出的单次请求。',
+              window: { from: '2026-09-23T02:15:00.000Z', to: '2026-09-23T02:16:30.000Z' },
+              measuredAt: '2026-09-23T02:16:30.000Z',
+              note: '来自一次浏览器 HAR 导出的两次下载请求。',
+              artifactRef: 'demo-har',
             },
           },
           {
@@ -264,6 +337,7 @@ export async function seedExampleCase(service: TracebookService): Promise<string
           { id: 'ev-http', kind: 'http', title: '创建任务 HTTP 记录', summary: 'POST 返回 202 与 job_id，证明同步请求只创建任务。', artifactRef: 'demo-http' },
           { id: 'ev-trace', kind: 'trace', title: '服务端 Trace', summary: 'Trace 显示 gateway → slide-service → queue publish。', artifactRef: 'demo-trace' },
           { id: 'ev-code', kind: 'code', title: 'Worker 消费代码', summary: '消费者处理 slide.generate 并更新 slide_jobs。', artifactRef: 'demo-code' },
+          { id: 'ev-har', kind: 'har', title: '下载请求 HAR', summary: '两次下载请求的完整相位耗时，用于逐请求比对。', artifactRef: 'demo-har' },
         ],
       },
       {
@@ -301,6 +375,11 @@ export async function seedExampleCase(service: TracebookService): Promise<string
         id: 'demo-code', kind: 'code', mimeType: 'text/plain', name: 'slide-worker.ts',
         summary: 'Worker 消费逻辑 mock 代码',
         contentText: `consumer.on('slide.generate', async (job) => {\n  const result = await renderPresentation(job);\n  const url = await objectStore.put(result);\n  await slideJobs.complete(job.id, url);\n});\n`,
+      },
+      {
+        id: 'demo-har', kind: 'har', mimeType: 'application/json', name: 'download-requests.har',
+        summary: '下载接口的浏览器 HAR 导出（mock，2 次请求）',
+        contentText: JSON.stringify(EXAMPLE_HAR_DOCUMENT, null, 2),
       },
     ],
   })

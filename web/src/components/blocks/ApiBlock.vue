@@ -1,8 +1,14 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref, type ComponentPublicInstance } from 'vue'
 import type { z } from 'zod'
 import type { apiBlockSchema, ApiEndpoint, ApiTiming } from '../../../../src/core/model'
 import type { Artifact } from '../../../../src/core/model'
+import {
+  harDocumentForEntries,
+  matchHarEntries,
+  parseHarDocument,
+  type HarDocumentView,
+} from '../../../../src/core/har'
 import { artifactUrl } from '../../api'
 
 const props = defineProps<{ block: z.infer<typeof apiBlockSchema>; artifacts?: Artifact[] }>()
@@ -10,6 +16,94 @@ const emit = defineEmits<{ ask: [selection: { type: 'api'; id: string; label?: s
 
 const query = ref('')
 const openId = ref('')
+
+/**
+ * HAR is read lazily, per endpoint, only when a reader opens it. Flat rather
+ * than a discriminated union so the template can read `.message` without a
+ * narrowing helper.
+ */
+interface HarState {
+  status: 'loading' | 'ready' | 'error'
+  document?: HarDocumentView
+  entryCount?: number
+  message?: string
+}
+
+const harStates = ref<Record<string, HarState>>({})
+
+function setHarState(id: string, state: HarState) {
+  harStates.value = { ...harStates.value, [id]: state }
+}
+
+function harStateFor(id: string): HarState | undefined {
+  return harStates.value[id]
+}
+
+/** The chart element per endpoint, so the HAR is handed over as a property. */
+const charts = new Map<string, HTMLElement & { har?: unknown }>()
+
+/**
+ * The renderer and its stylesheet load only when a HAR is actually opened, so
+ * a case that never carries one pays nothing for the capability.
+ */
+let waterfallModule: Promise<unknown> | undefined
+function ensureWaterfall(): Promise<unknown> {
+  waterfallModule ??= import('@cloudflare/waterfall')
+  return waterfallModule
+}
+
+function bindChart(id: string, el: Element | ComponentPublicInstance | null) {
+  if (el instanceof HTMLElement) {
+    charts.set(id, el as HTMLElement & { har?: unknown })
+    applyChart(id)
+    return
+  }
+  charts.delete(id)
+}
+
+function applyChart(id: string) {
+  const chart = charts.get(id)
+  const state = harStateFor(id)
+  if (!chart || state?.status !== 'ready' || !state.document) return
+  chart.har = state.document
+}
+
+/**
+ * Load the HAR an endpoint's timing cites, keep only the requests that belong
+ * to it, and hand the result to the chart. Every failure falls back to the
+ * summary phase bar with the reason shown, never to an empty chart.
+ */
+async function loadEndpointHar(id: string) {
+  const endpoint = props.block.endpoints.find((entry) => entry.id === id)
+  const timing = endpoint?.timing
+  if (!endpoint || timing?.source !== 'har' || !timing.artifactRef) return
+  const existing = harStateFor(id)
+  if (existing?.status === 'ready' || existing?.status === 'loading') return
+  const artifactId = timing.artifactRef
+  setHarState(id, { status: 'loading' })
+  try {
+    const response = await fetch(artifactUrl(artifactId))
+    if (!response.ok) throw new Error(`HAR artifact read failed (${response.status})`)
+    const document = parseHarDocument(await response.text())
+    if (!document) throw new Error('Artifact is not a HAR document')
+    const entries = matchHarEntries(document, endpoint.method, endpoint.path)
+    if (!entries.length) throw new Error('No captured request matches this endpoint')
+    await ensureWaterfall()
+    setHarState(id, {
+      status: 'ready',
+      document: harDocumentForEntries(document, entries),
+      entryCount: entries.length,
+    })
+    // The element only exists once the ready branch has painted.
+    await nextTick()
+    applyChart(id)
+  } catch (reason) {
+    setHarState(id, {
+      status: 'error',
+      message: reason instanceof Error ? reason.message : String(reason),
+    })
+  }
+}
 
 const matches = computed(() => {
   const needle = query.value.trim().toLowerCase()
@@ -24,6 +118,7 @@ const rows = computed(() => matches.value.map((endpoint) => {
     lead,
     breakdown: endpoint.timing ? breakdownSegments(endpoint.timing) : undefined,
     aggregates: endpoint.timing ? timingAggregates(endpoint.timing) : [],
+    har: harStates.value[endpoint.id],
     // Only a threshold someone actually declared may colour the number.
     overBudget: lead !== undefined
       && endpoint.expectedMs !== undefined
@@ -32,7 +127,9 @@ const rows = computed(() => matches.value.map((endpoint) => {
 }))
 
 function toggle(id: string) {
-  openId.value = openId.value === id ? '' : id
+  const next = openId.value === id ? '' : id
+  openId.value = next
+  if (next) void loadEndpointHar(next)
 }
 
 function formatMs(value: number): string {
@@ -291,7 +388,23 @@ function artifactName(id: string): string {
                   <p v-if="row.endpoint.timing.window" class="api-timing-note">
                     Window: {{ formatWindow(row.endpoint.timing.window) }}
                   </p>
-                  <div v-if="row.breakdown?.parts.length" class="api-waterfall">
+                  <p v-if="row.har?.status === 'loading'" class="api-har-note">
+                    正在读取 HAR…
+                  </p>
+                  <template v-else-if="row.har?.status === 'ready'">
+                    <p class="api-har-note">
+                      HAR 单次请求瀑布 · {{ row.har?.entryCount }} 条匹配请求
+                    </p>
+                    <waterfall-chart
+                      :ref="(el: Element | ComponentPublicInstance | null) => bindChart(row.endpoint.id, el)"
+                      class="api-har"
+                    />
+                  </template>
+                  <!-- The summary phases stay the fallback whenever no HAR could be read. -->
+                  <div
+                    v-if="row.har?.status !== 'ready' && row.breakdown?.parts.length"
+                    class="api-waterfall"
+                  >
                     <span
                       v-for="part in row.breakdown.parts"
                       :key="part.key"
@@ -301,6 +414,9 @@ function artifactName(id: string): string {
                       <small>{{ part.label }}</small><strong>{{ formatMs(part.value) }}</strong>
                     </span>
                   </div>
+                  <p v-if="row.har?.status === 'error'" class="api-har-note error">
+                    {{ row.har?.message }} · 已回退到相位汇总
+                  </p>
                   <p v-if="row.endpoint.timing.note" class="api-timing-note">{{ row.endpoint.timing.note }}</p>
                   <a v-if="row.endpoint.timing.artifactRef" :href="artifactUrl(row.endpoint.timing.artifactRef)" target="_blank">
                     {{ artifactName(row.endpoint.timing.artifactRef) }} ↗

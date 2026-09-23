@@ -10,9 +10,9 @@ Tracebook 是运行在 DeepSeek Harness（DSH）上的工程调查结果组织�
 - `tracebook_update`：按稳定 `block.id` 增量 upsert，支持 revision 冲突保护。
 - `tracebook_context`：返回适合后续 Agent 使用的压缩 Context。
 - DSH Domain Storage：Core 只依赖 `CaseRepository`，DSH 细节集中在 Host adapter。
-- 文件 Artifact Store：原子写入 Screenshot、Log、HTTP、Trace 等原始资料，Case 仅保存元数据与引用。
+- 文件 Artifact Store：原子写入 Screenshot、Log、HTTP、Trace、HAR 等原始资料，Case 仅保存元数据与引用。
 - 同源只读 API：Case List、Case Detail、Blocks、Artifact 内容、Session 关联与 Revision 历史。
-- Vue 3 Viewer：Case 列表/搜索、Block 搜索、Case 文档、八种 Block Renderer、API 接口详情（输入输出 / 耗时来源）、表格筛选、Artifact 类型筛选与内嵌预览、Gallery、Evidence。
+- Vue 3 Viewer：Case 列表/搜索、Block 搜索、Case 文档、八种 Block Renderer、API 接口详情（输入输出 / 耗时来源 / HAR 单次请求瀑布）、表格筛选、Artifact 类型筛选与内嵌预览、Gallery、Evidence。
 - 视觉系统：白色页面 + Archify 风格的平面 + 1px 描边 + mono 前置 + 语义色，高密度信息布局（规范见设计文档 13.1）。
 - Vue Flow + ELK.js：流程渲染、自动布局、缩放、Minimap、Node Inspector 与 Layout 切换；Node Inspector 内嵌节点图片 Artifact 缩略图。
 - 更新提示：轮询 revision，提示新版本并在刷新时保留滚动位置与 Flow 选中项。
@@ -27,8 +27,9 @@ Tracebook 是运行在 DeepSeek Harness（DSH）上的工程调查结果组织�
 - 任何 `example` 必须带 `source`（`observed` / `spec` / `inferred`），编造的示意值和真实抓到的响应不会长得一样。
 - 分位数必须带 `sampleSize` 与 `errorCount`（RED），错误率由二者推导；`window` 界定聚合区间。
 - 声明耗时（SLO）用 endpoint 上的 `expectedMs` / `expectedRef`，与实测分开；只有声明过的阈值才会给数字上色。
+- 当 `timing.source` 为 `har` 且 `artifactRef` 指向 HAR Artifact 时，展开 endpoint 会用 `@cloudflare/waterfall` 画单次请求瀑布；无法读取或无匹配请求时回退到相位汇总条。渲染器与样式按需懒加载，不进主 bundle。
 
-协议细节见设计文档 7.8 节。
+协议细节见设计文档 7.8 节；为什么不复用 OpenAPI 渲染器见 [决策记录](docs/research/openapi-renderer-decision.md)。
 
 ## 安装与构建
 
@@ -71,7 +72,7 @@ Bundle 默认插入一个 `tracebook` Host plugin。可在 Profile patch 中覆�
 | `artifactDirectory` | Artifact 文件目录，默认 `.tracebook/artifacts` |
 | `webDirectory` | 自定义已构建 Viewer 目录，默认使用包内 `dist/web` |
 | `metadataOnlyArtifacts` | 仅保存 Artifact 元数据，不写入 payload；主要用于受限部署和测试 |
-| `seedExampleCase` | 启动时幂等写入一个覆盖 8 类 Block 与 4 类 Artifact 的完整 mock Case |
+| `seedExampleCase` | 启动时幂等写入一个覆盖 8 类 Block 与 5 类 Artifact 的完整 mock Case |
 
 Storage backend 由 DSH `storage-domain` 路由决定，Tracebook 不直接依赖 SQLite。
 
