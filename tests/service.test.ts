@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { MetadataOnlyArtifactStore } from '../src/core/artifact-store.js'
+import { MAX_ARTIFACT_BYTES } from '../src/core/model.js'
 import { MemoryCaseRepository } from '../src/core/memory-repository.js'
 import { TracebookService } from '../src/core/service.js'
 
@@ -142,5 +143,81 @@ describe('TracebookService', () => {
     const { caseId } = await service.open({ title: 'PPT generation' })
     await service.update({ caseId, summary: 'moved on' })
     expect(await service.revision(caseId)).toMatchObject({ caseId, revision: 2, status: 'active' })
+  })
+
+  it('rejects an oversized inline artifact payload with INVALID_INPUT', async () => {
+    const service = createService()
+    const { caseId } = await service.open({ title: 'Big payload' })
+    await expect(service.update({
+      caseId,
+      artifacts: [{ id: 'big', kind: 'log', contentText: 'a'.repeat(MAX_ARTIFACT_BYTES + 1) }],
+    })).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+  })
+
+  it('rejects a malformed base64 artifact payload', async () => {
+    const service = createService()
+    const { caseId } = await service.open({ title: 'Bad base64' })
+    await expect(service.update({
+      caseId,
+      artifacts: [{ id: 'shot', kind: 'screenshot', contentBase64: 'not-valid-base64$$$' }],
+    })).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+  })
+
+  it('rejects duplicate block ids within one update', async () => {
+    const service = createService()
+    const { caseId } = await service.open({ title: 'Duplicates' })
+    await expect(service.update({
+      caseId,
+      upsertBlocks: [
+        { id: 'dup', type: 'markdown', content: 'first' },
+        { id: 'dup', type: 'markdown', content: 'second' },
+      ],
+    })).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+  })
+
+  it('deletes a block by id and bumps the revision', async () => {
+    const service = createService()
+    const { caseId } = await service.open({ title: 'Deletion' })
+    const added = await service.update({
+      caseId,
+      upsertBlocks: [
+        { id: 'keep', type: 'markdown', content: 'keep me' },
+        { id: 'drop', type: 'markdown', content: 'remove me' },
+      ],
+    })
+    const deleted = await service.update({ caseId, deleteBlockIds: ['drop'] })
+    expect(deleted.revision).toBe(added.revision + 1)
+    const document = await service.requireCase(caseId)
+    expect(document.blocks.map((block) => block.id)).toEqual(['keep'])
+
+    // Deleting a missing id is a no-op that does not bump the revision.
+    const noop = await service.update({ caseId, deleteBlockIds: ['ghost'] })
+    expect(noop.revision).toBe(deleted.revision)
+  })
+
+  it('returns one block in full when context is asked for a blockId', async () => {
+    const service = createService()
+    const { caseId } = await service.open({ title: 'Full block read' })
+    await service.update({
+      caseId,
+      upsertBlocks: [{ id: 'notes', type: 'markdown', content: 'The complete body of the block.' }],
+    })
+    const result = await service.context({ caseId, blockId: 'notes' })
+    expect(result.matchedBlockIds).toEqual(['notes'])
+    expect(result).toHaveProperty('block')
+    expect(result.context).toContain('The complete body of the block.')
+    await expect(service.context({ caseId, blockId: 'missing' })).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+
+  it('surfaces dangling references as non-fatal warnings', async () => {
+    const service = createService()
+    const { caseId } = await service.open({ title: 'Dangling refs' })
+    const result = await service.update({
+      caseId,
+      upsertBlocks: [{ id: 'shots', type: 'gallery', items: [{ artifactRef: 'missing-artifact' }] }],
+    })
+    // The write still succeeds; only a warning is surfaced.
+    expect(result.warnings.some((warning) => warning.includes('missing-artifact'))).toBe(true)
+    expect((await service.requireCase(caseId)).blocks).toHaveLength(1)
   })
 })

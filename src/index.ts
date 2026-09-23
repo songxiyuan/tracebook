@@ -20,6 +20,12 @@ export const inject = ['tools', 'storageDomain', 'webServer']
 
 export interface Config {
   artifactDirectory?: string
+  /**
+   * P1-10: allow-list root for artifact `path` ingestion. When unset, `path`
+   * inputs are rejected and only inline bytes are accepted, so the plugin never
+   * reads arbitrary host paths by default.
+   */
+  artifactIngestRoot?: string
   webDirectory?: string
   metadataOnlyArtifacts?: boolean
   seedExampleCase?: boolean
@@ -30,7 +36,10 @@ export function apply(ctx: Context, config: Config = {}) {
     const repository = await DshCaseRepository.open(ctx.storageDomain)
     const artifactStore = config.metadataOnlyArtifacts
       ? new MetadataOnlyArtifactStore()
-      : new FileArtifactStore(resolve(config.artifactDirectory ?? '.tracebook/artifacts'))
+      : new FileArtifactStore(
+        resolve(config.artifactDirectory ?? '.tracebook/artifacts'),
+        config.artifactIngestRoot ? resolve(config.artifactIngestRoot) : undefined,
+      )
     const service = new TracebookService(repository, artifactStore)
     if (config.seedExampleCase) await seedExampleCase(service)
     const disposeTools = registerTools(ctx, service)

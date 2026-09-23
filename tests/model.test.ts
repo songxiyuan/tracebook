@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { blockSchema } from '../src/core/model.js'
+import { blockSchema, buildBlockSchemaReference } from '../src/core/model.js'
 
 describe('block schema', () => {
   it('accepts all eight MVP block types', () => {
@@ -23,6 +23,38 @@ describe('block schema', () => {
     })
     expect(result.success).toBe(false)
     if (!result.success) expect(result.error.issues[0]?.message).toContain('missing target')
+  })
+
+  it('rejects duplicate ids within a block (P1-1)', () => {
+    const dupNode = blockSchema.safeParse({
+      id: 'flow', type: 'flow',
+      nodes: [{ id: 'a', label: 'A' }, { id: 'a', label: 'A2' }], edges: [],
+    })
+    expect(dupNode.success).toBe(false)
+
+    const dupColumn = blockSchema.safeParse({
+      id: 'table', type: 'table',
+      columns: [{ key: 'k', label: 'One' }, { key: 'k', label: 'Two' }], rows: [],
+    })
+    expect(dupColumn.success).toBe(false)
+
+    const dupEndpoint = blockSchema.safeParse({
+      id: 'api', type: 'api',
+      endpoints: [
+        { id: 'create', method: 'POST', path: '/slides' },
+        { id: 'create', method: 'GET', path: '/slides' },
+      ],
+    })
+    expect(dupEndpoint.success).toBe(false)
+  })
+})
+
+describe('block schema reference', () => {
+  it('exposes a per-type field reference for tool discovery', () => {
+    const reference = buildBlockSchemaReference()
+    for (const type of ['markdown', 'facts', 'flow', 'table', 'timeline', 'evidence', 'gallery', 'api']) {
+      expect(reference).toContain(`${type}:`)
+    }
   })
 })
 

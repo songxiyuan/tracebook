@@ -1,8 +1,11 @@
 import { z } from 'zod'
 import {
   artifactInputSchema,
+  assertArtifactPayloadWithinLimits,
   blockSchema,
   caseDocumentSchema,
+  MAX_ARTIFACTS_PER_UPDATE,
+  MAX_UPSERT_BLOCKS,
   summarizeCase,
   type ApiTiming,
   type Artifact,
@@ -35,6 +38,28 @@ const updateInputSchema = z.object({
   environment: z.string().optional(),
   upsertBlocks: z.array(blockSchema).default([]),
   artifacts: z.array(artifactInputSchema).default([]),
+  // P1-9 / P1-12: ids to remove from the case in this same call. Deleting a
+  // missing id is a no-op (see service.update).
+  deleteBlockIds: z.array(z.string().trim().min(1)).default([]),
+  deleteArtifactIds: z.array(z.string().trim().min(1)).default([]),
+}).superRefine((value, ctx) => {
+  // P1-1: reject duplicate ids inside one call. Silent last-write-wins would
+  // make the upsert order load-bearing and surprise the caller.
+  const seenBlockIds = new Set<string>()
+  for (const block of value.upsertBlocks) {
+    if (seenBlockIds.has(block.id)) {
+      ctx.addIssue({ code: 'custom', message: `Duplicate block id ${block.id} in upsertBlocks` })
+    }
+    seenBlockIds.add(block.id)
+  }
+  const seenArtifactIds = new Set<string>()
+  for (const artifact of value.artifacts) {
+    if (artifact.id === undefined) continue
+    if (seenArtifactIds.has(artifact.id)) {
+      ctx.addIssue({ code: 'custom', message: `Duplicate artifact id ${artifact.id} in artifacts` })
+    }
+    seenArtifactIds.add(artifact.id)
+  }
 })
 
 export type OpenCaseInput = z.input<typeof openInputSchema>
@@ -52,6 +77,12 @@ export interface UpdateCaseResult {
   revision: number
   updatedBlockIds: string[]
   artifactIds: string[]
+  /**
+   * P1-11: non-fatal dangling-reference warnings for the resulting case, e.g. a
+   * block that points at an artifact id or block id that is not present. Empty
+   * when everything resolves; never a reason to reject the write.
+   */
+  warnings: string[]
 }
 
 function slug(value: string) {
@@ -149,6 +180,75 @@ function timingHeadline(timing: ApiTiming | undefined): string | undefined {
 
 function errorRatePercent(errorCount: number, sampleSize: number): string {
   return ((errorCount / sampleSize) * 100).toFixed(1)
+}
+
+/**
+ * Surface schema validation as INVALID_INPUT (HTTP 400) instead of letting a
+ * raw ZodError escape as a 500. The first issue's message is the most specific,
+ * so it becomes the client-facing reason; non-Zod errors pass through unchanged.
+ */
+function toInvalidInput(error: unknown): TracebookError {
+  if (error instanceof z.ZodError) {
+    const message = error.issues[0]?.message ?? 'Invalid input'
+    return new TracebookError('INVALID_INPUT', message)
+  }
+  throw error
+}
+
+/**
+ * P1-11: a shallow scan of the known ref-bearing fields for references that do
+ * not resolve inside the resulting case. Pragmatic on purpose — it walks the
+ * fields that actually carry ids and reports the danglers, nothing deeper.
+ */
+function referenceWarnings(blocks: Block[], artifacts: Artifact[]): string[] {
+  const warnings: string[] = []
+  const artifactIds = new Set(artifacts.map((artifact) => artifact.id))
+  const blockIds = new Set(blocks.map((block) => block.id))
+  const missingArtifact = (ref: string, where: string) => {
+    if (!artifactIds.has(ref)) warnings.push(`${where} references missing artifact "${ref}"`)
+  }
+  const missingBlock = (ref: string, where: string) => {
+    if (!blockIds.has(ref)) warnings.push(`${where} references missing block "${ref}"`)
+  }
+  for (const block of blocks) {
+    for (const ref of block.artifactRefs ?? []) missingArtifact(ref, `Block "${block.id}"`)
+    switch (block.type) {
+      case 'flow':
+        for (const node of block.nodes) {
+          for (const ref of node.artifactRefs ?? []) missingArtifact(ref, `Flow node "${node.id}"`)
+          for (const ref of node.relatedBlockIds ?? []) missingBlock(ref, `Flow node "${node.id}"`)
+        }
+        for (const edge of block.edges) {
+          for (const ref of edge.artifactRefs ?? []) missingArtifact(ref, `Flow edge "${edge.id}"`)
+          for (const ref of edge.relatedBlockIds ?? []) missingBlock(ref, `Flow edge "${edge.id}"`)
+        }
+        break
+      case 'api':
+        for (const endpoint of block.endpoints) {
+          for (const ref of endpoint.artifactRefs ?? []) missingArtifact(ref, `Endpoint "${endpoint.id}"`)
+          for (const ref of endpoint.relatedBlockIds ?? []) missingBlock(ref, `Endpoint "${endpoint.id}"`)
+          for (const response of endpoint.responses ?? []) {
+            if (response.artifactRef) missingArtifact(response.artifactRef, `Endpoint "${endpoint.id}" response ${response.status}`)
+          }
+          if (endpoint.timing?.artifactRef) missingArtifact(endpoint.timing.artifactRef, `Endpoint "${endpoint.id}" timing`)
+        }
+        break
+      case 'gallery':
+        for (const item of block.items) missingArtifact(item.artifactRef, `Gallery block "${block.id}"`)
+        break
+      case 'evidence':
+        for (const item of block.items) {
+          if (item.artifactRef) missingArtifact(item.artifactRef, `Evidence "${item.id}"`)
+        }
+        break
+      case 'timeline':
+        for (const item of block.items) {
+          for (const ref of item.artifactRefs ?? []) missingArtifact(ref, `Timeline item "${item.title}"`)
+        }
+        break
+    }
+  }
+  return warnings
 }
 
 export class TracebookService {
@@ -266,7 +366,27 @@ export class TracebookService {
   }
 
   async update(input: UpdateCaseInput): Promise<UpdateCaseResult> {
-    const parsed = updateInputSchema.parse(input)
+    let parsed: z.infer<typeof updateInputSchema>
+    try {
+      parsed = updateInputSchema.parse(input)
+    } catch (error) {
+      throw toInvalidInput(error)
+    }
+
+    // P1-6: cap array sizes so a single call cannot balloon the tool payload.
+    // Reject rather than silently truncate.
+    if (parsed.upsertBlocks.length > MAX_UPSERT_BLOCKS) {
+      throw new TracebookError('INVALID_INPUT', `upsertBlocks exceeds the ${MAX_UPSERT_BLOCKS}-item limit`)
+    }
+    if (parsed.artifacts.length > MAX_ARTIFACTS_PER_UPDATE) {
+      throw new TracebookError('INVALID_INPUT', `artifacts exceeds the ${MAX_ARTIFACTS_PER_UPDATE}-item limit`)
+    }
+    // P1-6: reject oversized or malformed inline payloads before any disk work,
+    // to keep MB-scale base64 out of the model/tool path and the store.
+    for (const artifact of parsed.artifacts as ArtifactInput[]) {
+      assertArtifactPayloadWithinLimits(artifact)
+    }
+
     const caseId = parsed.caseId ?? (parsed.sourceSessionId
       ? await this.repository.getActiveCase(parsed.sourceSessionId)
       : undefined)
@@ -284,7 +404,16 @@ export class TracebookService {
       }
 
       const timestamp = this.now().toISOString()
-      const blocks = [...current.blocks]
+
+      // P1-9/P1-12: apply deletions before recomputing the document. Deleting a
+      // missing id is a no-op; a deleted block/artifact is itself a change and
+      // bumps the revision. Removed artifact files are unlinked after the write.
+      const deleteBlockIds = new Set(parsed.deleteBlockIds)
+      const deleteArtifactIds = new Set(parsed.deleteArtifactIds)
+      const blocks = current.blocks.filter((block) => !deleteBlockIds.has(block.id))
+      const artifactsToRemove: Artifact[] = current.artifacts.filter((artifact) => deleteArtifactIds.has(artifact.id))
+      const artifacts = current.artifacts.filter((artifact) => !deleteArtifactIds.has(artifact.id))
+
       const positions = new Map(blocks.map((block, index) => [block.id, index]))
       for (const rawBlock of parsed.upsertBlocks) {
         const block = blockSchema.parse({ ...rawBlock, updatedAt: timestamp })
@@ -301,14 +430,17 @@ export class TracebookService {
       for (const rawArtifact of parsed.artifacts as ArtifactInput[]) {
         savedArtifacts.push(await this.artifactStore.save(caseId, rawArtifact))
       }
-      const artifactPositions = new Map(current.artifacts.map((artifact, index) => [artifact.id, index]))
-      const artifacts = [...current.artifacts]
+      const artifactPositions = new Map(artifacts.map((artifact, index) => [artifact.id, index]))
       for (const artifact of savedArtifacts) {
         const index = artifactPositions.get(artifact.id)
         if (index === undefined) {
           artifactPositions.set(artifact.id, artifacts.length)
           artifacts.push(artifact)
         } else {
+          // P1-12: overwriting an id with fresh bytes orphans the old file
+          // unless we unlink it; queue the previous record for cleanup.
+          const previous = artifacts[index]
+          if (previous?.path && previous.path !== artifact.path) artifactsToRemove.push(previous)
           artifacts[index] = artifact
         }
       }
@@ -322,15 +454,19 @@ export class TracebookService {
       const nextSummary = parsed.summary ?? current.summary
       const nextEnvironment = parsed.environment ?? current.environment
 
+      // P1-11: surface dangling references without rejecting the write.
+      const warnings = referenceWarnings(blocks, artifacts)
+
       // P1-2: short-circuit a pure no-op so history is not littered with empty
       // revisions. Freshly saved artifacts always differ (their `createdAt` is
       // new), so any call carrying artifacts is a change; block re-sends only
       // touch a volatile `updatedAt`, so blocks are compared with that field
       // dropped from the JSON signature — a byte-identical re-send is a no-op,
-      // real content edits still register.
+      // real content edits, deletions, and overwrites still register.
       const blockSignature = (list: Block[]) =>
         JSON.stringify(list, (key, value) => (key === 'updatedAt' ? undefined : value))
       const unchanged = savedArtifacts.length === 0
+        && artifactsToRemove.length === 0
         && sourceSessions.length === current.sourceSessions.length
         && nextTitle === current.title
         && nextType === current.type
@@ -345,6 +481,7 @@ export class TracebookService {
           revision: current.revision,
           updatedBlockIds: parsed.upsertBlocks.map((block) => block.id),
           artifactIds: savedArtifacts.map((artifact) => artifact.id),
+          warnings,
         }
       }
 
@@ -363,21 +500,58 @@ export class TracebookService {
       })
       await this.repository.put(updated)
       if (parsed.sourceSessionId) await this.repository.setActiveCase(parsed.sourceSessionId, caseId)
+      // P1-12: unlink orphaned files only after the revision is durable, and
+      // never let a failed unlink fail the write.
+      await this.removeArtifactFiles(artifactsToRemove)
       return {
         caseId,
         revision: updated.revision,
         updatedBlockIds: parsed.upsertBlocks.map((block) => block.id),
         artifactIds: savedArtifacts.map((artifact) => artifact.id),
+        warnings,
       }
     })
   }
 
-  async context(input: { caseId?: string; sourceSessionId?: string; query?: string; maxBlocks?: number }) {
+  /**
+   * P1-12: best-effort removal of orphaned artifact files (deleted or
+   * overwritten). A store without `remove` (metadata-only) is skipped, and a
+   * failed unlink is swallowed — a leftover file is harmless, but losing the
+   * committed revision would not be.
+   */
+  private async removeArtifactFiles(artifacts: Artifact[]): Promise<void> {
+    if (!this.artifactStore.remove) return
+    for (const artifact of artifacts) {
+      try {
+        await this.artifactStore.remove(artifact)
+      } catch {
+        // Swallow: cleanup must never fail the surrounding write.
+      }
+    }
+  }
+
+  async context(input: { caseId?: string; sourceSessionId?: string; query?: string; maxBlocks?: number; blockId?: string }) {
     const caseId = input.caseId ?? (input.sourceSessionId
       ? await this.repository.getActiveCase(input.sourceSessionId)
       : undefined)
     if (!caseId) throw new TracebookError('INVALID_INPUT', 'caseId is required when the session has no active case')
     const document = await this.requireCase(caseId)
+
+    // P1-9: single-block full read. When blockId is given, return that block's
+    // complete JSON instead of the compacted listing, so a large-case successor
+    // can pull exactly one block in full without re-sending the whole case.
+    if (input.blockId) {
+      const block = document.blocks.find((candidate) => candidate.id === input.blockId)
+      if (!block) throw new TracebookError('NOT_FOUND', `Block not found: ${input.blockId}`)
+      return {
+        caseId,
+        revision: document.revision,
+        context: JSON.stringify(block, null, 2),
+        matchedBlockIds: [block.id],
+        block,
+      }
+    }
+
     const query = input.query?.trim().toLowerCase()
     const maxBlocks = Math.min(Math.max(input.maxBlocks ?? 8, 1), 20)
     const blocks = (query

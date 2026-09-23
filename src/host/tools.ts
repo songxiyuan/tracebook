@@ -1,5 +1,6 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { Context } from '@deepseek-ai/cordis'
+import { buildBlockSchemaReference } from '../core/model.js'
 import type { OpenCaseInput, TracebookService, UpdateCaseInput } from '../core/service.js'
 
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
@@ -15,6 +16,18 @@ const jsonOutput = {
     text: JSON.stringify(value, null, 2),
   }],
 }
+
+// P1-9: expose the block protocol on the tool itself so a model constructs a
+// valid block without guessing field names or the `type` discriminant. The
+// reference is derived from the schema (see buildBlockSchemaReference).
+const blockSchemaReference = buildBlockSchemaReference()
+const updateDescription = [
+  'Incrementally update an investigation case. Blocks are validated and upserted by stable block ID; omitted blocks stay unchanged.',
+  'Remove content in the same call with deleteBlockIds / deleteArtifactIds (deleting a missing id is a no-op). Archive a case with status: "archived".',
+  '',
+  'Block field reference (one line per type; "?" marks optional fields; every block also needs its discriminant "type"):',
+  blockSchemaReference,
+].join('\n')
 
 export function registerTools(ctx: Context, service: TracebookService) {
   const disposers = [
@@ -35,7 +48,7 @@ export function registerTools(ctx: Context, service: TracebookService) {
     })),
     ctx.tools.register(defineTool({
       name: 'tracebook_update',
-      description: 'Incrementally update an investigation case. Blocks are validated and upserted by stable block ID; omitted blocks remain unchanged.',
+      description: updateDescription,
       parameters: {
         caseId: { type: 'string', description: 'Case ID. May be omitted when sourceSessionId has an active case.' },
         sourceSessionId: { type: 'string', description: 'Associated DSH session.' },
@@ -48,12 +61,22 @@ export function registerTools(ctx: Context, service: TracebookService) {
         upsertBlocks: {
           type: 'array',
           items: { type: 'json' },
-          description: 'Complete markdown, facts, flow, table, timeline, evidence, gallery, or api blocks to upsert by id.',
+          description: 'Complete markdown, facts, flow, table, timeline, evidence, gallery, or api blocks to upsert by id. See the tool description for each type\'s field reference.',
         },
         artifacts: {
           type: 'array',
           items: { type: 'json' },
-          description: 'Artifact metadata with optional contentText or contentBase64 payload.',
+          description: 'Artifact metadata with an optional contentText, contentBase64, or path payload (mutually exclusive; path is ingested only from a configured allow-list root).',
+        },
+        deleteBlockIds: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Block ids to remove from the case in this call. Deleting a missing id is a no-op.',
+        },
+        deleteArtifactIds: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Artifact ids to remove from the case in this call; their stored files are unlinked. Deleting a missing id is a no-op.',
         },
       },
       output: jsonOutput,
@@ -63,12 +86,13 @@ export function registerTools(ctx: Context, service: TracebookService) {
     })),
     ctx.tools.register(defineTool({
       name: 'tracebook_context',
-      description: 'Read a compact, AI-friendly context projection of an existing Tracebook case before continuing an investigation.',
+      description: 'Read a compact, AI-friendly context projection of an existing Tracebook case before continuing an investigation. Pass blockId to fetch one block\'s complete JSON instead of the compact listing.',
       parameters: {
         caseId: { type: 'string', description: 'Case ID. May be omitted when sourceSessionId has an active case.' },
         sourceSessionId: { type: 'string', description: 'DSH session whose active case should be used.' },
         query: { type: 'string', description: 'Optional literal relevance filter over block content.' },
         maxBlocks: { type: 'integer', description: 'Maximum blocks to return, from 1 to 20.' },
+        blockId: { type: 'string', description: 'Return this one block\'s full JSON instead of the compacted listing.' },
       },
       output: jsonOutput,
       async execute(args) {
