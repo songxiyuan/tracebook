@@ -1627,13 +1627,13 @@ PATCH /tracebook/api/cases/:id/blocks/:blockId
 推荐最终发布：
 
 ```text
-@your-scope/dsh-tracebook
+@songxiyuan/dsh-tracebook
 ```
 
 用户安装：
 
 ```bash
-dsh plugin --profile web add @your-scope/dsh-tracebook
+dsh plugin --profile web add @songxiyuan/dsh-tracebook
 ```
 
 开发期也可以：
@@ -1753,7 +1753,7 @@ Bundle package.json：
 
 ```json
 {
-  "name": "@your-scope/dsh-tracebook",
+  "name": "@songxiyuan/dsh-tracebook",
   "version": "0.1.0",
   "type": "module",
   "dsh": {
@@ -1769,7 +1769,7 @@ Bundle package.json：
 ```yaml
 - insert:
     - id: tracebook
-      name: '@your-scope/dsh-tracebook'
+      name: '@songxiyuan/dsh-tracebook'
 ```
 
 具体字段以当前 DSH 官方 publish 文档为准。

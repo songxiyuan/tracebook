@@ -13,7 +13,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
-const packageName = 'dsh-tracebook'
+const packageName = '@songxiyuan/dsh-tracebook'
 const outfile = `${root}dist/client.js`
 
 // The shell seeds exactly this frozen module table; every one of these resolves
