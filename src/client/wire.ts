@@ -18,7 +18,7 @@ export const ASK_MESSAGE_SOURCE = 'tracebook'
 export const VIEWER_PATH = '/tracebook/'
 
 export interface AskSelection {
-  type: 'node' | 'evidence'
+  type: 'node' | 'evidence' | 'api'
   id: string
   label?: string
 }

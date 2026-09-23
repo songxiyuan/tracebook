@@ -37,7 +37,7 @@ export const embedded = window.parent !== window
 
 export interface AskSelection {
   /** What the user selected inside a block. */
-  type: 'node' | 'evidence'
+  type: 'node' | 'evidence' | 'api'
   id: string
   label?: string
 }

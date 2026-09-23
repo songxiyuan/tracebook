@@ -15,10 +15,22 @@ describe('example case', () => {
     expect((await service.listCases())).toHaveLength(1)
     expect(document.title).toBe(EXAMPLE_CASE_TITLE)
     expect(new Set(document.blocks.map((block) => block.type))).toEqual(new Set([
-      'markdown', 'facts', 'flow', 'table', 'timeline', 'evidence', 'gallery',
+      'markdown', 'facts', 'flow', 'table', 'timeline', 'evidence', 'gallery', 'api',
     ]))
     expect(document.artifacts.map((artifact) => artifact.kind)).toEqual([
       'screenshot', 'http', 'trace', 'code',
     ])
+  })
+
+  it('projects the api block into Agent context with its timing provenance', async () => {
+    const service = new TracebookService(new MemoryCaseRepository(), new MetadataOnlyArtifactStore())
+    const caseId = await seedExampleCase(service)
+    const { context } = await service.context({ caseId })
+
+    expect(context).toContain('POST /api/slides/generate')
+    expect(context).toContain('trace p50=85ms')
+    expect(context).toContain('log p95=46ms n=240')
+    // Inferred timing must stay labelled in Context, never blurred into a measurement.
+    expect(context).toContain('[estimated p50=30ms]')
   })
 })

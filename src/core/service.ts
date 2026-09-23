@@ -4,6 +4,7 @@ import {
   blockSchema,
   caseDocumentSchema,
   summarizeCase,
+  type ApiTiming,
   type Artifact,
   type ArtifactInput,
   type Block,
@@ -110,8 +111,32 @@ function compactBlock(block: Block, maxLength = 900): string {
     case 'gallery':
       content = block.items.map((item) => item.caption ?? item.artifactRef).join('; ')
       break
+    case 'api':
+      content = block.endpoints.slice(0, 10).map((endpoint) => {
+        const response = endpoint.responses?.[0]
+        const observed = timingHeadline(endpoint.timing)
+        return `${endpoint.method} ${endpoint.path}${endpoint.service ? ` (${endpoint.service})` : ''}`
+          + `${endpoint.summary ? `: ${endpoint.summary}` : ''}`
+          + `${response ? ` -> ${response.status}` : ''}`
+          + `${observed ? ` [${observed}]` : ''}`
+      }).join('; ')
+      break
   }
   return content.length > maxLength ? `${content.slice(0, maxLength)}…` : content
+}
+
+/**
+ * One-line timing summary for Context reads. The source is kept in the text so
+ * a follow-up Agent never reuses an inferred number as if it were measured.
+ */
+function timingHeadline(timing: ApiTiming | undefined): string | undefined {
+  if (!timing) return undefined
+  const primary = timing.p95 !== undefined ? `p95=${timing.p95}ms`
+    : timing.p50 !== undefined ? `p50=${timing.p50}ms`
+      : timing.max !== undefined ? `max=${timing.max}ms`
+        : undefined
+  if (!primary) return timing.source
+  return `${timing.source} ${primary}${timing.sampleSize ? ` n=${timing.sampleSize}` : ''}`
 }
 
 export class TracebookService {

@@ -7,9 +7,10 @@ import TableBlock from './TableBlock.vue'
 import TimelineBlock from './TimelineBlock.vue'
 import EvidenceBlock from './EvidenceBlock.vue'
 import GalleryBlock from './GalleryBlock.vue'
+import ApiBlock from './ApiBlock.vue'
 
 const props = defineProps<{ block: Block; artifacts: Artifact[] }>()
-const emit = defineEmits<{ ask: [selection: { blockId: string; type: 'node' | 'evidence'; id: string; label?: string }] }>()
+const emit = defineEmits<{ ask: [selection: { blockId: string; type: 'node' | 'evidence' | 'api'; id: string; label?: string }] }>()
 
 const FlowBlock = defineAsyncComponent(() => import('./FlowBlock.vue'))
 const components: Record<Block['type'], Component> = {
@@ -20,10 +21,11 @@ const components: Record<Block['type'], Component> = {
   timeline: TimelineBlock,
   evidence: EvidenceBlock,
   gallery: GalleryBlock,
+  api: ApiBlock,
 }
 
 /** Attach the owning block, so the follow-up context names both selection and block. */
-function forwardAsk(selection: { type: 'node' | 'evidence'; id: string; label?: string }) {
+function forwardAsk(selection: { type: 'node' | 'evidence' | 'api'; id: string; label?: string }) {
   emit('ask', { blockId: props.block.id, ...selection })
 }
 </script>

@@ -19,7 +19,7 @@ export async function seedExampleCase(service: TracebookService): Promise<string
   const existing = (await service.listCases()).find((item) =>
     item.type === 'example' && item.title === EXAMPLE_CASE_TITLE,
   )
-  if (existing?.blockCount === 7 && existing.artifactCount === 4) return existing.id
+  if (existing?.blockCount === 8 && existing.artifactCount === 4) return existing.id
 
   const opened = existing
     ? await service.open({ caseId: existing.id, sourceSessionId: 'tracebook-example-seed' })
@@ -97,19 +97,135 @@ export async function seedExampleCase(service: TracebookService): Promise<string
       },
       {
         id: 'api-list',
-        type: 'table',
+        type: 'api',
         title: '接口清单',
+        description: '点击任意接口展开输入、输出与观测耗时。耗时数字必须标注来源：Trace / HAR / Log 为实测，估算单独标记。',
+        endpoints: [
+          {
+            id: 'generate',
+            method: 'POST',
+            path: '/api/slides/generate',
+            service: 'slide-service',
+            summary: '创建 PPT 生成任务',
+            request: {
+              body: {
+                contentType: 'application/json',
+                example: { topic: 'Q3 product strategy and growth plan', template: 'modern' },
+              },
+            },
+            responses: [{
+              status: 202,
+              description: '任务已创建，返回 job_id',
+              contentType: 'application/json',
+              example: { job_id: 'job_mock_01', status: 'queued' },
+              artifactRef: 'demo-http',
+            }],
+            timing: {
+              source: 'trace',
+              sampleSize: 1,
+              samples: [85],
+              p50: 85,
+              measuredAt: '2026-09-23T02:14:00.000Z',
+              note: '取自一次 mock 调用的服务端 Trace，仅一次采样。',
+              artifactRef: 'demo-trace',
+            },
+            artifactRefs: ['demo-http', 'demo-trace'],
+            relatedBlockIds: ['key-evidence'],
+          },
+          {
+            id: 'job-status',
+            method: 'GET',
+            path: '/api/slides/jobs/:id',
+            service: 'slide-service',
+            summary: '查询任务状态与进度',
+            request: {
+              params: [{ name: 'id', in: 'path', type: 'string', required: true, example: 'job_mock_01' }],
+            },
+            responses: [{
+              status: 200,
+              description: '任务状态',
+              contentType: 'application/json',
+              example: { job_id: 'job_mock_01', status: 'processing', progress: 0.4 },
+            }],
+            timing: {
+              source: 'log',
+              sampleSize: 240,
+              p50: 17,
+              p95: 46,
+              p99: 88,
+              max: 210,
+              measuredAt: '2026-09-23T02:00:00.000Z',
+              note: '由网关访问日志聚合，样本数 240。',
+            },
+          },
+          {
+            id: 'job-events',
+            method: 'GET',
+            path: '/api/slides/jobs/:id/events',
+            service: 'slide-service',
+            summary: '订阅 SSE 状态变化',
+            request: {
+              params: [{ name: 'id', in: 'path', type: 'string', required: true, example: 'job_mock_01' }],
+            },
+            responses: [{
+              status: 200,
+              description: 'SSE 事件流，推送 processing / completed / failed',
+              contentType: 'text/event-stream',
+            }],
+          },
+          {
+            id: 'job-download',
+            method: 'GET',
+            path: '/api/slides/jobs/:id/download',
+            service: 'slide-service',
+            summary: '获取短期下载地址',
+            responses: [{
+              status: 302,
+              description: '重定向到对象存储签名地址',
+            }],
+            timing: {
+              source: 'har',
+              sampleSize: 1,
+              samples: [58],
+              p50: 58,
+              breakdown: { dns: 2, connect: 9, ttfb: 41, download: 6 },
+              measuredAt: '2026-09-23T02:15:00.000Z',
+              note: '来自一次浏览器 HAR 导出的单次请求。',
+            },
+          },
+          {
+            id: 'template-list',
+            method: 'GET',
+            path: '/api/slides/templates',
+            service: 'slide-service',
+            summary: '模板列表',
+            responses: [{
+              status: 200,
+              description: '可用模板',
+              contentType: 'application/json',
+              example: ['modern', 'classic'],
+            }],
+            timing: {
+              source: 'estimated',
+              p50: 30,
+              note: '未采样，按同服务只读接口推断，仅供排序参考。',
+            },
+          },
+        ],
+      },
+      {
+        id: 'storage-tables',
+        type: 'table',
+        title: '数据表与存储清单',
         columns: [
-          { key: 'method', label: 'Method' },
-          { key: 'path', label: 'Path' },
-          { key: 'service', label: 'Service' },
-          { key: 'description', label: '作用' },
+          { key: 'target', label: 'Target' },
+          { key: 'store', label: 'Store' },
+          { key: 'purpose', label: '作用' },
         ],
         rows: [
-          { method: 'POST', path: '/api/slides/generate', service: 'slide-service', description: '创建 PPT 生成任务' },
-          { method: 'GET', path: '/api/slides/jobs/:id', service: 'slide-service', description: '查询任务状态与进度' },
-          { method: 'GET', path: '/api/slides/jobs/:id/events', service: 'slide-service', description: '订阅 SSE 状态变化' },
-          { method: 'GET', path: '/api/slides/jobs/:id/download', service: 'slide-service', description: '获取短期下载地址' },
+          { target: 'slide_jobs', store: 'PostgreSQL', purpose: '保存任务状态、进度与结果 URL' },
+          { target: 'slide_events', store: 'PostgreSQL', purpose: '状态变更事件，供 SSE 推送' },
+          { target: 'slides/{job_id}.pptx', store: 'Object Storage', purpose: '最终 PPTX 与预览图' },
         ],
       },
       {

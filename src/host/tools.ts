@@ -48,7 +48,7 @@ export function registerTools(ctx: Context, service: TracebookService) {
         upsertBlocks: {
           type: 'array',
           items: { type: 'json' },
-          description: 'Complete markdown, facts, flow, table, timeline, evidence, or gallery blocks to upsert by id.',
+          description: 'Complete markdown, facts, flow, table, timeline, evidence, gallery, or api blocks to upsert by id.',
         },
         artifacts: {
           type: 'array',

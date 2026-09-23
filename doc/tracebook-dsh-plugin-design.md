@@ -46,18 +46,18 @@ Agent 读取已有 Tracebook Context 后继续调查
 
 本仓库已经完成本文第 22 节定义的 MVP：
 
-- Core：CaseDocument、7 种 Block、Artifact Schema、Repository 抽象、稳定 ID upsert、revision 并发保护和 Context 压缩。
+- Core：CaseDocument、8 种 Block、Artifact Schema、Repository 抽象、稳定 ID upsert、revision 并发保护和 Context 压缩。
 - Host：DSH Domain Storage adapter、三个 Agent Tool、文件 Artifact Store、同源只读 API 与 Vue 静态资源路由。
 - Viewer：Case List、Case Detail、全部 Block Renderer、Table 筛选、Evidence/Gallery Artifact 访问、Vue Flow + ELK.js 自动布局与 Node Inspector。
 - 工程化：TypeScript 严格检查、Vitest 覆盖核心闭环、Vite/tsup 生产构建和 DSH Bundle manifest。
 - 集成验证：已在 DSH `0.1.5-rc.3` Web Profile 中完成插件安装、Domain Storage 持久化、同源 API、SPA 路由和 Artifact 读取验证。
-- 完整案例：可通过 `seedExampleCase` 幂等写入覆盖 7 类 Block 与 Screenshot/HTTP/Trace/Code 四类 Artifact 的 mock Case，用于开箱验证和演示。
+- 完整案例：可通过 `seedExampleCase` 幂等写入覆盖 8 类 Block 与 Screenshot/HTTP/Trace/Code 四类 Artifact 的 mock Case，用于开箱验证和演示。
 
 在此之上已补齐第 16.1 节与 V1.x/V2 中的关键交互：
 
 - DSH 原生入口：薄 Client Plugin 在会话标题栏注册 `Tracebook` 按钮，通过 Right Sidebar 打开 SPA 标签，右侧栏不可用时退化为同源新标签。
 - 当前 Case 联动：`/tracebook/?session=…` 解析当前 DSH Session 的关联 Case；多关联时先给选择列表。
-- `Ask about this`：Flow Node 与 Evidence 可携带上下文回到当前对话输入框（只填入草稿，不自动发送）。
+- `Ask about this`：Flow Node、Evidence 与 API endpoint 可携带上下文回到当前对话输入框（只填入草稿，不自动发送）。
 - 更新提示：详情页轮询 revision，提示新版本并在刷新时保留滚动位置与 Flow 选中项。
 - 历史与检索：Block 搜索、Artifact 类型筛选与内嵌预览、Revision 历史与 Block diff、Flow layout 切换。
 - 视觉系统：Viewer 采用第 13.1 节的 Archify 语言（平面色块 + 1px 描边 + mono 前置 + 语义色），Case 列表为高密度表格而非卡片墙。
@@ -454,7 +454,7 @@ interface CaseDocument {
 
 # 7. Block 是最重要的抽象
 
-第一版推荐支持 7 种 Block：
+第一版推荐支持 8 种 Block：
 
 ```text
 markdown
@@ -464,6 +464,7 @@ table
 timeline
 evidence
 gallery
+api
 ```
 
 统一基础字段：
@@ -752,6 +753,94 @@ other
   ]
 }
 ```
+
+---
+
+## 7.8 API Block
+
+接口清单用 `api` Block，而不是 `table`。
+
+理由：接口有 request / response / 耗时 的固定语义，而 `table.rows` 是无类型记录，既撑不下这些语义，也无法校验，Viewer 只能靠猜 key。通用表格（页面清单、数据表清单、巡检结果）继续用 `table`。
+
+```json
+{
+  "id": "api-list",
+  "type": "api",
+  "title": "接口清单",
+  "endpoints": [
+    {
+      "id": "job-status",
+      "method": "GET",
+      "path": "/api/slides/jobs/:id",
+      "service": "slide-service",
+      "summary": "查询任务状态与进度",
+      "request": {
+        "params": [
+          { "name": "id", "in": "path", "type": "string", "required": true, "example": "job_01" }
+        ],
+        "body": {
+          "contentType": "application/json",
+          "example": { "topic": "Q3 product strategy" },
+          "schemaArtifactRef": "schema-001"
+        }
+      },
+      "responses": [
+        {
+          "status": 200,
+          "description": "任务状态",
+          "contentType": "application/json",
+          "example": { "job_id": "job_01", "status": "processing", "progress": 0.4 },
+          "artifactRef": "artifact-http-001"
+        }
+      ],
+      "timing": {
+        "source": "log",
+        "sampleSize": 240,
+        "p50": 17,
+        "p95": 46,
+        "measuredAt": "2026-09-23T02:00:00.000Z",
+        "note": "由网关访问日志聚合，样本数 240。",
+        "artifactRef": "artifact-log-001"
+      },
+      "artifactRefs": ["artifact-http-001"],
+      "relatedBlockIds": ["key-evidence"]
+    }
+  ]
+}
+```
+
+字段约定：
+
+- `method` 归一化为大写标准 HTTP 方法（`GET` / `POST` / `PUT` / `PATCH` / `DELETE` / `HEAD` / `OPTIONS`）。
+- `path` 保留 `:id` 这类占位符，不要求是可调用的真实 URL。
+- `request` / `responses` / `timing` 全部可省略：调查常常只知道接口存在，不应强迫 Agent 编造细节。
+- `responses[].artifactRef` 指向 HTTP Artifact，`request.body.schemaArtifactRef` 指向 Schema Artifact；大体积原文仍然只进 Artifact Store（见第 8 节），Case 只存引用。
+
+### 7.8.1 Timing 必须带来源
+
+`timing.source` 是必填枚举：
+
+```text
+trace      服务端 Trace 的 span 耗时（首选，最可信）
+har        浏览器 HAR 导出的单次请求，可带 breakdown
+log        日志聚合出的分位数
+metrics    监控系统的聚合结果
+estimated  Agent 推断，不是测量值
+```
+
+约束：
+
+1. **没有 `source` 的耗时不允许写入。** 渲染器不会把裸数字当作实测延迟展示。
+2. `estimated` 在 Viewer 中单独标记为「估算」，与实测在视觉上不可混淆。
+3. `trace` / `har` / `log` 建议同时给 `artifactRef`，让每个数字都能点回原始证据。
+4. `timing` 至少要有一个 `samples` / `p50` / `p95` / `p99` / `max` / `breakdown`，空对象视为无效。
+5. `breakdown` 沿用 HAR 的相位词汇（`dns` / `connect` / `ttfb` / `download`），单位统一 ms。
+
+### 7.8.2 Viewer
+
+- 列表按 endpoint 展示 `METHOD path`、Service、输入摘要、输出摘要与主耗时（优先 p95，其次 p50 / max / 最后样本），并显示来源标签。
+- 行内展开 request 参数与 body、各 response 的状态与示例、timing 分位数与相位条，以及 Artifact / Related Block 链接。
+- 每个 endpoint 提供 `Ask about this`，与 Flow Node / Evidence 一致。
 
 ---
 
@@ -1282,7 +1371,8 @@ BlockRenderer
 ├── TableBlock.vue
 ├── TimelineBlock.vue
 ├── EvidenceBlock.vue
-└── GalleryBlock.vue
+├── GalleryBlock.vue
+└── ApiBlock.vue
 ```
 
 核心渲染逻辑：
@@ -1428,7 +1518,7 @@ Agent tracebook_update
 
 ## 16.1 Ask About This
 
-已实现。用户选择某个 Flow Node 或 Evidence，点击 `Ask about this`，页面形成一个 Context Envelope：
+已实现。用户选择某个 Flow Node、Evidence 或 API endpoint，点击 `Ask about this`，页面形成一个 Context Envelope：
 
 ```json
 {
@@ -1582,7 +1672,8 @@ dsh-tracebook/
 │               ├── TableBlock.vue
 │               ├── TimelineBlock.vue
 │               ├── EvidenceBlock.vue
-│               └── GalleryBlock.vue
+│               ├── GalleryBlock.vue
+│               └── ApiBlock.vue
 │
 └── dist/ or lib/
 ```
@@ -1873,7 +1964,7 @@ dsh plugin --profile web add github:xxx/dsh-tracebook
 - Case List。
 - Case Detail。
 - Summary。
-- 7 种 Block Renderer。
+- 8 种 Block Renderer。
 - Vue Flow。
 - ELK.js 自动布局。
 - Flow Node Inspector。
@@ -2005,12 +2096,13 @@ Agent：
 - Flow 多 Layout（TB / LR / BT / RL，按 block 记忆）。
 - Flow diff（通过 Block diff 呈现 nodes / edges 变化）。
 - 版本历史（`revisions` 表 + Block diff）。
+- API Block（接口清单的输入 / 输出 / 耗时详情，`timing.source` 标注实测与估算）。
 
 ## V2
 
 已实现：
 
-- `Ask about this`：从 Node / Evidence 直接回到 DSH Conversation 输入框。
+- `Ask about this`：从 Node / Evidence / API endpoint 直接回到 DSH Conversation 输入框。
 - Client Plugin 与 active Session 的联动：会话标题栏入口、按 Session 打开关联 Case。
 
 仍未实现（按第 23 节边界，等真实需求出现再说）：
