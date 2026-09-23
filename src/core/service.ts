@@ -316,13 +316,45 @@ export class TracebookService {
       const sourceSessions = parsed.sourceSessionId && !current.sourceSessions.includes(parsed.sourceSessionId)
         ? [...current.sourceSessions, parsed.sourceSessionId]
         : current.sourceSessions
+      const nextTitle = parsed.title ?? current.title
+      const nextType = parsed.type ?? current.type
+      const nextStatus = parsed.status ?? current.status
+      const nextSummary = parsed.summary ?? current.summary
+      const nextEnvironment = parsed.environment ?? current.environment
+
+      // P1-2: short-circuit a pure no-op so history is not littered with empty
+      // revisions. Freshly saved artifacts always differ (their `createdAt` is
+      // new), so any call carrying artifacts is a change; block re-sends only
+      // touch a volatile `updatedAt`, so blocks are compared with that field
+      // dropped from the JSON signature — a byte-identical re-send is a no-op,
+      // real content edits still register.
+      const blockSignature = (list: Block[]) =>
+        JSON.stringify(list, (key, value) => (key === 'updatedAt' ? undefined : value))
+      const unchanged = savedArtifacts.length === 0
+        && sourceSessions.length === current.sourceSessions.length
+        && nextTitle === current.title
+        && nextType === current.type
+        && nextStatus === current.status
+        && nextSummary === current.summary
+        && nextEnvironment === current.environment
+        && blockSignature(blocks) === blockSignature(current.blocks)
+        && JSON.stringify(artifacts) === JSON.stringify(current.artifacts)
+      if (unchanged) {
+        return {
+          caseId,
+          revision: current.revision,
+          updatedBlockIds: parsed.upsertBlocks.map((block) => block.id),
+          artifactIds: savedArtifacts.map((artifact) => artifact.id),
+        }
+      }
+
       const updated = caseDocumentSchema.parse({
         ...current,
-        title: parsed.title ?? current.title,
-        type: parsed.type ?? current.type,
-        status: parsed.status ?? current.status,
-        summary: parsed.summary ?? current.summary,
-        environment: parsed.environment ?? current.environment,
+        title: nextTitle,
+        type: nextType,
+        status: nextStatus,
+        summary: nextSummary,
+        environment: nextEnvironment,
         blocks,
         artifacts,
         sourceSessions,
@@ -372,7 +404,20 @@ export class TracebookService {
     }
   }
 
-  async resolveArtifact(artifactId: string): Promise<{ artifact: Artifact; path: string }> {
+  async resolveArtifact(artifactId: string, caseId?: string): Promise<{ artifact: Artifact; path: string }> {
+    // P0-7: when the caller knows the owning case, load only that case. This
+    // turns an O(cases x size) global scan into an O(case size) lookup and
+    // resolves the artifact within the named case, so an id that collides
+    // across cases never resolves to the wrong one.
+    if (caseId !== undefined) {
+      const document = await this.requireCase(caseId)
+      const artifact = document.artifacts.find((candidate) => candidate.id === artifactId)
+      if (!artifact) throw new TracebookError('ARTIFACT_NOT_FOUND', `Artifact not found: ${artifactId}`)
+      const path = await this.artifactStore.resolve(artifact)
+      if (!path) throw new TracebookError('ARTIFACT_NOT_FOUND', `Artifact content not found: ${artifactId}`)
+      return { artifact, path }
+    }
+    // Backward-compatible global scan for callers with no caseId.
     for (const summary of await this.repository.list()) {
       const document = await this.repository.get(summary.id)
       const artifact = document?.artifacts.find((candidate) => candidate.id === artifactId)

@@ -83,6 +83,11 @@ export function getRevisionSnapshot(caseId: string, revision: number) {
   return request<CaseRevisionSnapshot>(`/cases/${encodeURIComponent(caseId)}/revisions/${revision}`)
 }
 
-export function artifactUrl(artifactId: string) {
-  return `/tracebook/api/artifacts/${encodeURIComponent(artifactId)}`
+export function artifactUrl(artifactId: string, caseId?: string) {
+  // Case-scoped path when the caller knows the owning case (avoids the global
+  // artifact scan and cross-case id collisions); the legacy path stays the
+  // default so existing call sites keep working unchanged.
+  return caseId
+    ? `/tracebook/api/cases/${encodeURIComponent(caseId)}/artifacts/${encodeURIComponent(artifactId)}`
+    : `/tracebook/api/artifacts/${encodeURIComponent(artifactId)}`
 }

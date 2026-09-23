@@ -7,6 +7,7 @@ import { lookup } from 'mime-types'
 import type { Context } from '@deepseek-ai/cordis'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { TracebookError } from '../core/errors.js'
+import type { Artifact, CaseDocument } from '../core/model.js'
 import type { TracebookService } from '../core/service.js'
 
 // tsup emits this module as dist/index.js and Vite emits the SPA beside it as
@@ -59,6 +60,35 @@ async function streamFile(
   return true
 }
 
+/**
+ * Shared artifact response for both the global and case-scoped routes: an
+ * inline content-disposition, the sandbox CSP that keeps Agent-written bytes
+ * from executing in the DSH origin, and the validated `mimeType` handed to
+ * `streamFile`.
+ */
+async function serveArtifact(response: ServerResponse, method: string, artifact: Artifact, path: string) {
+  response.setHeader('content-disposition', `inline; filename*=UTF-8''${encodeURIComponent(artifact.name ?? artifact.id)}`)
+  // Artifact bytes are Agent-written and may come from an external capture, so
+  // an SVG/HTML opened directly must not execute script in the DSH origin. A
+  // sandbox CSP forces a unique origin (no scripts, no same-origin access)
+  // while still letting images and text render inline.
+  response.setHeader('content-security-policy', 'sandbox; default-src \'none\'; img-src \'self\' data:; style-src \'unsafe-inline\'; media-src \'self\'')
+  await streamFile(response, path, method, 'private, max-age=300', artifact.mimeType)
+}
+
+/**
+ * Client-facing view of a case document. `artifact.path` is a server-side
+ * absolute filesystem location; it is server-only and must never reach the
+ * client, so strip it from every artifact before serializing (P0-6). The
+ * stored model is unchanged.
+ */
+function publicCaseDocument(document: CaseDocument) {
+  return {
+    ...document,
+    artifacts: document.artifacts.map(({ path: _path, ...artifact }) => artifact),
+  }
+}
+
 async function handleApi(pathname: string, request: IncomingMessage, response: ServerResponse, service: TracebookService) {
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     response.writeHead(405, { allow: 'GET, HEAD' }).end()
@@ -95,19 +125,22 @@ async function handleApi(pathname: string, request: IncomingMessage, response: S
   if (caseMatch) {
     const document = await service.requireCase(decodeURIComponent(caseMatch[1]!))
     if (pathname.endsWith('/blocks')) sendJson(response, 200, { blocks: document.blocks })
-    else sendJson(response, 200, document)
+    else sendJson(response, 200, publicCaseDocument(document))
+    return
+  }
+  const scopedArtifactMatch = pathname.match(/^\/tracebook\/api\/cases\/([^/]+)\/artifacts\/([^/]+)$/)
+  if (scopedArtifactMatch) {
+    const { artifact, path } = await service.resolveArtifact(
+      decodeURIComponent(scopedArtifactMatch[2]!),
+      decodeURIComponent(scopedArtifactMatch[1]!),
+    )
+    await serveArtifact(response, request.method, artifact, path)
     return
   }
   const artifactMatch = pathname.match(/^\/tracebook\/api\/artifacts\/([^/]+)$/)
   if (artifactMatch) {
     const { artifact, path } = await service.resolveArtifact(decodeURIComponent(artifactMatch[1]!))
-    response.setHeader('content-disposition', `inline; filename*=UTF-8''${encodeURIComponent(artifact.name ?? artifact.id)}`)
-    // Artifact bytes are Agent-written and may come from an external capture, so
-    // an SVG/HTML opened directly must not execute script in the DSH origin. A
-    // sandbox CSP forces a unique origin (no scripts, no same-origin access)
-    // while still letting images and text render inline.
-    response.setHeader('content-security-policy', 'sandbox; default-src \'none\'; img-src \'self\' data:; style-src \'unsafe-inline\'; media-src \'self\'')
-    await streamFile(response, path, request.method, 'private, max-age=300', artifact.mimeType)
+    await serveArtifact(response, request.method, artifact, path)
     return
   }
   sendJson(response, 404, { error: { code: 'NOT_FOUND', message: 'API route not found' } })

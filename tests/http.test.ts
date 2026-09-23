@@ -1,11 +1,15 @@
 import { createServer } from 'node:http'
+import { mkdtemp } from 'node:fs/promises'
 import type { AddressInfo } from 'node:net'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import { MetadataOnlyArtifactStore } from '../src/core/artifact-store.js'
 import { MemoryCaseRepository } from '../src/core/memory-repository.js'
 import { TracebookService } from '../src/core/service.js'
+import { FileArtifactStore } from '../src/host/artifact-store.js'
 import { registerHttpRoutes } from '../src/host/http.js'
 
 /** Mount the plugin's routes on a real HTTP server, exactly as the DSH web host does. */
@@ -105,5 +109,55 @@ describe('tracebook http routes', () => {
     const missing = await fetch(`${base}/tracebook/api/artifacts/does-not-exist`)
     expect(missing.status).toBe(404)
     expect(await missing.json()).toMatchObject({ error: { code: 'ARTIFACT_NOT_FOUND' } })
+  })
+})
+
+describe('case-scoped artifact route', () => {
+  it('serves an artifact scoped to its case, keeps the legacy route, and 404s a wrong case', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'tracebook-http-'))
+    const service = new TracebookService(new MemoryCaseRepository(), new FileArtifactStore(root))
+    const { caseId } = await service.open({ title: 'Artifact routing' })
+    const updated = await service.update({
+      caseId,
+      artifacts: [{ id: 'log-1', kind: 'log', name: 'worker.log', mimeType: 'text/plain', contentText: 'job done' }],
+    })
+    expect(updated.artifactIds).toEqual(['log-1'])
+
+    const { server, base } = await startServer(service)
+    try {
+      const scoped = await fetch(`${base}/tracebook/api/cases/${caseId}/artifacts/log-1`)
+      expect(scoped.status).toBe(200)
+      expect(await scoped.text()).toBe('job done')
+
+      // The legacy global route still resolves the same artifact.
+      const legacy = await fetch(`${base}/tracebook/api/artifacts/log-1`)
+      expect(legacy.status).toBe(200)
+
+      // A wrong caseId never reaches another case's artifact.
+      const wrong = await fetch(`${base}/tracebook/api/cases/does-not-exist/artifacts/log-1`)
+      expect(wrong.status).toBe(404)
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  })
+
+  it('strips the server-side artifact path from a case document (P0-6)', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'tracebook-http-'))
+    const service = new TracebookService(new MemoryCaseRepository(), new FileArtifactStore(root))
+    const { caseId } = await service.open({ title: 'No leaked paths' })
+    await service.update({
+      caseId,
+      artifacts: [{ id: 'log-1', kind: 'log', name: 'worker.log', mimeType: 'text/plain', contentText: 'bytes' }],
+    })
+    const { server, base } = await startServer(service)
+    try {
+      const document = await fetch(`${base}/tracebook/api/cases/${caseId}`).then((r) => r.json()) as {
+        artifacts: Array<Record<string, unknown>>
+      }
+      expect(document.artifacts).toHaveLength(1)
+      expect(document.artifacts[0]).not.toHaveProperty('path')
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
   })
 })

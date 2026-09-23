@@ -45,6 +45,16 @@ type TracebookDomain = Domain<typeof tracebookDomainSpec>
 const compoundKey = (caseId: string, itemId: string) =>
   Buffer.from(JSON.stringify([caseId, itemId])).toString('base64url')
 
+/**
+ * Case store over the DSH domain backend.
+ *
+ * The backend gives one per-domain write chain (each write awaits durability,
+ * then mutates memory, then emits) but has no multi-record transaction and no
+ * reload/reopen primitive: a process only sees its own writes plus whatever
+ * `open()` loaded. TRUE cross-process live visibility is therefore not solvable
+ * here and is out of scope — this class scopes itself to intra-process
+ * atomicity and torn-state avoidance (see `get`/`put`).
+ */
 export class DshCaseRepository implements CaseRepository {
   private constructor(private readonly domain: TracebookDomain) {}
 
@@ -88,14 +98,13 @@ export class DshCaseRepository implements CaseRepository {
     for (const [, value] of this.domain.table('artifacts').entries()) {
       if (value.caseId === caseId) artifactMap.set(value.artifact.id, value.artifact)
     }
-    const blocks = [
-      ...record.blockOrder.flatMap((id) => blockMap.has(id) ? [blockMap.get(id)!] : []),
-      ...[...blockMap.values()].filter((block) => !record.blockOrder.includes(block.id)),
-    ]
-    const artifacts = [
-      ...record.artifactOrder.flatMap((id) => artifactMap.has(id) ? [artifactMap.get(id)!] : []),
-      ...[...artifactMap.values()].filter((artifact) => !record.artifactOrder.includes(artifact.id)),
-    ]
+    // The `cases` record's order arrays are the single source of truth for
+    // membership: a block/artifact is visible only if the committed case lists
+    // it. Records still on disk but absent from the order arrays are orphans
+    // from a half-applied or superseded write and stay invisible, so a reader
+    // never observes torn state.
+    const blocks = record.blockOrder.flatMap((id) => blockMap.has(id) ? [blockMap.get(id)!] : [])
+    const artifacts = record.artifactOrder.flatMap((id) => artifactMap.has(id) ? [artifactMap.get(id)!] : [])
     const { blockOrder: _blockOrder, artifactOrder: _artifactOrder, ...caseRecord } = record
     return caseDocumentSchema.parse({ ...caseRecord, blocks, artifacts })
   }
@@ -103,33 +112,43 @@ export class DshCaseRepository implements CaseRepository {
   async put(document: CaseDocument) {
     const parsed = caseDocumentSchema.parse(document)
     const { blocks, artifacts, ...record } = parsed
+    const blockTable = this.domain.table('blocks')
+    const artifactTable = this.domain.table('artifacts')
+
+    // Ordering rationale (P0-2/P0-3): the flip runs in three phases so a crash
+    // at any point leaves a consistent case, because `get()` reads membership
+    // only from the `cases` record's order arrays.
+    //   (a) write every desired block/artifact record and the revision record —
+    //       none is visible until the commit lists it, so a crash here leaves
+    //       the OLD case fully intact;
+    //   (b) write the `cases` record with the new order arrays — this single
+    //       durable write is the atomic commit point;
+    //   (c) prune block/artifact records no longer wanted — a crash between (b)
+    //       and (c) leaves only invisible orphans, not torn state.
+    for (const block of blocks) await blockTable.put(compoundKey(parsed.id, block.id), { caseId: parsed.id, block })
+    for (const artifact of artifacts) {
+      await artifactTable.put(compoundKey(parsed.id, artifact.id), { caseId: parsed.id, artifact })
+    }
+    await this.domain.table('revisions').put(compoundKey(parsed.id, String(parsed.revision)), {
+      caseId: parsed.id,
+      revision: parsed.revision,
+      snapshot: revisionSnapshotOf(parsed),
+    })
+
     await this.domain.table('cases').put(parsed.id, {
       ...record,
       blockOrder: blocks.map((block) => block.id),
       artifactOrder: artifacts.map((artifact) => artifact.id),
     })
 
-    const blockTable = this.domain.table('blocks')
     const desiredBlocks = new Set(blocks.map((block) => compoundKey(parsed.id, block.id)))
     for (const [key, value] of blockTable.entries()) {
       if (value.caseId === parsed.id && !desiredBlocks.has(key)) await blockTable.delete(key)
     }
-    for (const block of blocks) await blockTable.put(compoundKey(parsed.id, block.id), { caseId: parsed.id, block })
-
-    const artifactTable = this.domain.table('artifacts')
     const desiredArtifacts = new Set(artifacts.map((artifact) => compoundKey(parsed.id, artifact.id)))
     for (const [key, value] of artifactTable.entries()) {
       if (value.caseId === parsed.id && !desiredArtifacts.has(key)) await artifactTable.delete(key)
     }
-    for (const artifact of artifacts) {
-      await artifactTable.put(compoundKey(parsed.id, artifact.id), { caseId: parsed.id, artifact })
-    }
-
-    await this.domain.table('revisions').put(compoundKey(parsed.id, String(parsed.revision)), {
-      caseId: parsed.id,
-      revision: parsed.revision,
-      snapshot: revisionSnapshotOf(parsed),
-    })
   }
 
   async getActiveCase(sessionId: string) {
