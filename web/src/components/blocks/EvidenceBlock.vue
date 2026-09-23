@@ -9,7 +9,7 @@ const emit = defineEmits<{ ask: [selection: { type: 'evidence'; id: string; labe
 
 <template>
   <div class="evidence-grid">
-    <article v-for="item in block.items" :key="item.id" class="evidence-card">
+    <article v-for="item in block.items" :key="item.id" class="evidence-card" :class="`kind-${item.kind}`">
       <span class="evidence-kind">{{ item.kind }}</span>
       <h3>{{ item.title }}</h3>
       <p v-if="item.summary">{{ item.summary }}</p>

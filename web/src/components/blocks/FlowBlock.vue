@@ -29,6 +29,13 @@ const selected = computed(() => props.block.nodes.find((node) => node.id === sel
 const { fitView } = useVueFlow()
 const elk = new ELK()
 
+/** Canvas height bounds; the laid-out graph decides where in between it lands. */
+const NODE_WIDTH = 176
+const NODE_HEIGHT = 58
+const CANVAS_MIN_HEIGHT = 260
+const CANVAS_MAX_HEIGHT = 620
+const shellHeight = ref(380)
+
 const DIRECTIONS = ['TB', 'LR', 'BT', 'RL'] as const
 type Direction = (typeof DIRECTIONS)[number]
 const directionKey = `tracebook:flow-direction:${props.block.id}`
@@ -52,8 +59,8 @@ function layoutOptions(value: FlowBlock['direction']) {
   return {
     'elk.algorithm': 'layered',
     'elk.direction': value,
-    'elk.spacing.nodeNode': '42',
-    'elk.layered.spacing.nodeNodeBetweenLayers': '72',
+    'elk.spacing.nodeNode': '32',
+    'elk.layered.spacing.nodeNodeBetweenLayers': '56',
     'elk.edgeRouting': 'ORTHOGONAL',
   }
 }
@@ -62,11 +69,12 @@ async function layout() {
   const graph = await elk.layout({
     id: 'root',
     layoutOptions: layoutOptions(direction.value),
-    children: props.block.nodes.map((node) => ({ id: node.id, width: 180, height: 68 })),
+    children: props.block.nodes.map((node) => ({ id: node.id, width: NODE_WIDTH, height: NODE_HEIGHT })),
     edges: props.block.edges.map((edge) => ({ id: edge.id, sources: [edge.source], targets: [edge.target] })),
   })
   const sourceNodes = new Map(props.block.nodes.map((node) => [node.id, node]))
-  nodes.value = (graph.children ?? []).map((node) => {
+  const laidOut = graph.children ?? []
+  nodes.value = laidOut.map((node) => {
     const source = sourceNodes.get(node.id)!
     return {
       id: node.id,
@@ -75,11 +83,17 @@ async function layout() {
       class: source.kind ? `kind-${source.kind}` : '',
     }
   })
+  // The canvas hugs its laid-out content: a wide, shallow flow must not reserve
+  // a tall empty box, and a deep flow gets room before it starts panning.
+  const contentHeight = laidOut.reduce((tallest, node) => Math.max(tallest, (node.y ?? 0) + NODE_HEIGHT), 0)
+  shellHeight.value = Math.min(CANVAS_MAX_HEIGHT, Math.max(CANVAS_MIN_HEIGHT, Math.round(contentHeight) + 128))
   edges.value = props.block.edges.map((edge) => ({
     id: edge.id, source: edge.source, target: edge.target, label: edge.label, animated: false,
   }))
   await nextTick()
-  fitView({ padding: 0.2 })
+  // Node labels are the payload, so the opening view keeps a legibility floor and
+  // lets the reader pan; the minimap and the fit control still give the overview.
+  fitView({ padding: 0.12, minZoom: 0.6 })
 }
 
 function selectNode(event: { node: { id: string } }) {
@@ -104,7 +118,7 @@ watch(direction, layout)
 </script>
 
 <template>
-  <div class="flow-shell" :class="{ inspecting: selected }">
+  <div class="flow-shell" :class="{ inspecting: selected }" :style="{ height: `${shellHeight}px` }">
     <div class="flow-toolbar">
       <span>Layout</span>
       <button
@@ -117,9 +131,15 @@ watch(direction, layout)
     </div>
     <div class="flow-canvas">
       <VueFlow :nodes="nodes" :edges="edges" :nodes-draggable="true" :min-zoom="0.2" :max-zoom="2" fit-view-on-init @node-click="selectNode">
-        <Background pattern-color="#31433d" :gap="24" />
+        <template #node-default="{ data }">
+          <div class="flow-node">
+            <strong>{{ data.label }}</strong>
+            <small v-if="data.kind">{{ data.kind }}</small>
+          </div>
+        </template>
+        <Background pattern-color="#1e293b" :gap="20" />
         <Controls />
-        <MiniMap pannable zoomable />
+        <MiniMap pannable zoomable :width="150" :height="98" node-color="#334155" mask-color="rgba(2,6,23,.72)" />
       </VueFlow>
     </div>
     <aside v-if="selected" class="flow-inspector">

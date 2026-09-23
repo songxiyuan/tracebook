@@ -28,8 +28,8 @@ const dotStyle: React.CSSProperties = {
   width: 6,
   height: 6,
   borderRadius: '50%',
-  background: '#92f2b4',
-  boxShadow: '0 0 0 3px rgba(146,242,180,.14)',
+  background: '#22d3ee',
+  boxShadow: '0 0 0 3px rgba(34,211,238,.14)',
 }
 
 const popoverStyle: React.CSSProperties = {
@@ -40,10 +40,10 @@ const popoverStyle: React.CSSProperties = {
   marginTop: 6,
   width: 240,
   padding: '10px 12px',
-  border: '1px solid #345446',
-  borderRadius: 10,
-  background: '#0b1714',
-  boxShadow: '0 18px 50px #0008',
+  border: '1px solid #334155',
+  borderRadius: 6,
+  background: '#0f172a',
+  boxShadow: '0 18px 48px rgba(2,6,23,.5)',
   fontSize: 11,
   lineHeight: 1.5,
 }
@@ -120,7 +120,7 @@ export function createTracebookAction(ctx: ClientContext): FunctionComponent<Tra
         {phase === 'failed' && (
           <span style={popoverStyle} role="status">
             无法打开 Tracebook。
-            <button type="button" style={{ ...buttonStyle, padding: 0, color: '#92f2b4' }} onClick={copyLink}>
+            <button type="button" style={{ ...buttonStyle, padding: 0, color: '#22d3ee' }} onClick={copyLink}>
               {copied ? '已复制链接' : '复制链接'}
             </button>
           </span>

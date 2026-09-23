@@ -14,12 +14,12 @@ export interface TracebookTabProps {
  * the URL, and every follow-up travels back over `postMessage`.
  */
 export const TracebookTab: FunctionComponent<TracebookTabProps> = ({ sessionId }) => (
-  <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: 0, background: '#07110f' }}>
+  <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: 0, background: '#020617' }}>
     <iframe
       title="Tracebook"
       src={viewerUrl(sessionId)}
       data-tracebook-viewer={VIEWER_PATH}
-      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 0, background: '#07110f' }}
+      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 0, background: '#020617' }}
     />
   </div>
 )

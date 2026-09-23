@@ -22,11 +22,26 @@ const filtered = computed(() => {
   return cases.value.filter((item) => JSON.stringify(item).toLowerCase().includes(needle))
 })
 
+/** The library header reports the whole library, never the narrowed view. */
+const stats = computed(() => ({
+  active: cases.value.filter((item) => item.status === 'active').length,
+  blocks: cases.value.reduce((total, item) => total + item.blockCount, 0),
+  artifacts: cases.value.reduce((total, item) => total + item.artifactCount, 0),
+}))
+
 /** Cases linked to the current DSH session stay visible even while the global search narrows the rest. */
 const linked = computed(() => link.value?.cases ?? [])
 
 function caseUrl(id: string) {
   return sessionId.value ? `/cases/${id}?session=${encodeURIComponent(sessionId.value)}` : `/cases/${id}`
+}
+
+/** Compact timestamps keep a dense table scannable. */
+function formatTime(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  const pad = (part: number) => String(part).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 async function copyPrompt() {
@@ -67,23 +82,24 @@ onMounted(async () => {
 
 <template>
   <main class="list-page">
-    <section class="hero">
+    <header class="page-head">
       <div>
-        <p class="eyebrow">INVESTIGATION LIBRARY</p>
-        <h1>Cases that keep<br><em>the thread intact.</em></h1>
-        <p class="hero-copy">调查结论、调用链与证据，跨 Session 持续生长。</p>
+        <h1>Cases</h1>
+        <p>Agent 沉淀的调查结论、调用链与证据，跨 Session 持续生长。</p>
       </div>
-      <div class="hero-stat">
-        <strong>{{ cases.length || linked.length }}</strong>
-        <span>cases documented</span>
-      </div>
-    </section>
+      <span class="page-spacer" />
+      <dl class="stat-strip">
+        <div><dt>Cases</dt><dd>{{ cases.length }}</dd></div>
+        <div><dt>Active</dt><dd class="signal">{{ stats.active }}</dd></div>
+        <div><dt>Blocks</dt><dd>{{ stats.blocks }}</dd></div>
+        <div><dt>Artifacts</dt><dd>{{ stats.artifacts }}</dd></div>
+      </dl>
+    </header>
 
-    <section v-if="sessionId" class="session-banner">
+    <section v-if="sessionId" class="session-strip">
+      <p class="eyebrow">Current session</p>
       <template v-if="linked.length">
-        <p class="eyebrow">CURRENT SESSION</p>
-        <h2>当前会话关联 {{ linked.length }} 个 Case</h2>
-        <p>选择要继续阅读的 Case；不会自动猜测。</p>
+        <p>关联 {{ linked.length }} 个 Case，选择要继续阅读的一个：</p>
         <div class="session-cases">
           <RouterLink v-for="item in linked" :key="item.id" class="session-case" :to="caseUrl(item.id)">
             <strong>{{ item.title }}</strong>
@@ -92,44 +108,62 @@ onMounted(async () => {
         </div>
       </template>
       <template v-else>
-        <p class="eyebrow">CURRENT SESSION</p>
-        <h2>当前会话尚未关联 Case</h2>
-        <p>可让 Agent 调用 tracebook_open 创建或关联。</p>
-        <div class="session-actions">
-          <code>{{ ASK_PROMPT }}</code>
-          <button class="ghost" @click="copyPrompt">{{ copied ? '已复制' : '复制提示词' }}</button>
-        </div>
+        <p>当前会话尚未关联 Case，可让 Agent 调用 tracebook_open 创建或关联：</p>
+        <code>{{ ASK_PROMPT }}</code>
+        <button class="ghost" @click="copyPrompt">{{ copied ? '已复制' : '复制提示词' }}</button>
       </template>
     </section>
 
     <section class="case-library">
       <div class="section-heading">
         <h2>All cases</h2>
+        <span class="count">{{ filtered.length }} / {{ cases.length }}</span>
+        <span class="heading-spacer" />
         <label class="search-box">
-          <span>⌕</span>
+          <svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true">
+            <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5" />
+            <path d="M10.6 10.6 14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+          </svg>
           <input v-model="query" type="search" placeholder="Search cases" />
         </label>
       </div>
+
       <p v-if="loading" class="state-card">Loading cases…</p>
       <p v-else-if="error" class="state-card error">{{ error }}</p>
-      <div v-else-if="filtered.length" class="case-grid">
-        <RouterLink v-for="item in filtered" :key="item.id" class="case-card" :to="caseUrl(item.id)">
-          <div class="card-topline">
-            <span class="case-type">{{ item.type || 'exploration' }}</span>
-            <span class="status-dot" :class="item.status" />
-          </div>
-          <h3>{{ item.title }}</h3>
-          <p>{{ item.summary || 'No summary has been written yet.' }}</p>
-          <dl>
-            <div><dt>Blocks</dt><dd>{{ item.blockCount }}</dd></div>
-            <div><dt>Evidence</dt><dd>{{ item.artifactCount }}</dd></div>
-            <div><dt>Revision</dt><dd>r{{ item.revision }}</dd></div>
-          </dl>
-          <time>{{ new Date(item.updatedAt).toLocaleString() }}</time>
-        </RouterLink>
+
+      <div v-else-if="filtered.length" class="table-wrap case-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Case</th>
+              <th>Type</th>
+              <th class="col-optional">Environment</th>
+              <th>Status</th>
+              <th class="num">Blocks</th>
+              <th class="num col-optional">Evid.</th>
+              <th class="num">Rev</th>
+              <th class="col-optional">Updated</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="item in filtered" :key="item.id">
+              <td class="case-title">
+                <RouterLink :to="caseUrl(item.id)">{{ item.title }}</RouterLink>
+                <small>{{ item.summary || 'No summary has been written yet.' }}</small>
+              </td>
+              <td><span class="tag">{{ item.type || 'exploration' }}</span></td>
+              <td class="col-optional cell-dim">{{ item.environment || '—' }}</td>
+              <td><span class="status" :class="item.status"><i />{{ item.status }}</span></td>
+              <td class="num">{{ item.blockCount }}</td>
+              <td class="num col-optional">{{ item.artifactCount }}</td>
+              <td class="num">r{{ item.revision }}</td>
+              <td class="col-optional cell-dim">{{ formatTime(item.updatedAt) }}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
+
       <div v-else class="state-card empty">
-        <span class="empty-glyph">◇</span>
         <h3>No cases yet</h3>
         <p>Ask the DSH Agent to open a Tracebook case, then results will appear here.</p>
       </div>

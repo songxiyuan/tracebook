@@ -258,7 +258,10 @@ onBeforeUnmount(() => {
         class="back-link"
       >← All cases</RouterLink>
       <label class="search-box block-search">
-        <span>⌕</span>
+        <svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true">
+          <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5" />
+          <path d="M10.6 10.6 14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+        </svg>
         <input v-model="blockQuery" type="search" placeholder="Search blocks" />
       </label>
       <p class="outline-label">CONTENTS</p>
@@ -294,6 +297,8 @@ onBeforeUnmount(() => {
         <p class="case-summary">{{ document.summary || 'No summary has been written yet.' }}</p>
         <div class="revision-line">
           <span>Revision {{ document.revision }}</span>
+          <span>{{ document.blocks.length }} blocks</span>
+          <span>{{ document.artifacts.length }} artifacts</span>
           <span>Updated {{ new Date(document.updatedAt).toLocaleString() }}</span>
           <span v-if="embedded">Embedded in DSH</span>
         </div>

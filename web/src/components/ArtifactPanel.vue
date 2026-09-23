@@ -62,7 +62,7 @@ function toggle(artifact: Artifact) {
       </div>
     </div>
     <div v-if="filtered.length" class="artifact-grid">
-      <article v-for="artifact in filtered" :key="artifact.id" class="artifact-card" :class="{ open: openId === artifact.id }">
+      <article v-for="artifact in filtered" :key="artifact.id" class="artifact-card" :class="[`kind-${artifact.kind}`, { open: openId === artifact.id }]">
         <button class="artifact-open" @click="toggle(artifact)">
           <span class="evidence-kind">{{ artifact.kind }}</span>
           <strong>{{ artifact.name || artifact.id }}</strong>

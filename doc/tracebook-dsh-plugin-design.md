@@ -60,6 +60,7 @@ Agent 读取已有 Tracebook Context 后继续调查
 - `Ask about this`：Flow Node 与 Evidence 可携带上下文回到当前对话输入框（只填入草稿，不自动发送）。
 - 更新提示：详情页轮询 revision，提示新版本并在刷新时保留滚动位置与 Flow 选中项。
 - 历史与检索：Block 搜索、Artifact 类型筛选与内嵌预览、Revision 历史与 Block diff、Flow layout 切换。
+- 视觉系统：Viewer 采用第 13.1 节的 Archify 语言（平面色块 + 1px 描边 + mono 前置 + 语义色），Case 列表为高密度表格而非卡片墙。
 
 MVP 保持 Agent Tool 为唯一业务写入口；HTTP API 只读。交互补齐的验收细节见 [交互补齐说明](tracebook-pending-interactions.md)。
 
@@ -1215,6 +1216,54 @@ Outline 折叠
 Document 占满
 Inspector 使用 Drawer
 ```
+
+## 13.1 Viewer 视觉规范
+
+Viewer 是工程评审界面，不是演示稿。视觉系统借用 [Archify](https://github.com/tt-a1i/archify) 的 "Evidence Console" 语言：**平面色块、1px 结构描边、mono 前置排版、语义色只承载含义**。背景保持单一纯色，不使用渐变、光晕、玻璃拟态、装饰性大标题。
+
+实施位置：`web/src/styles.css` 是唯一样式来源，所有令牌定义在 `:root`。
+
+### 令牌
+
+```text
+canvas   #020617   页面底色（纯色，无渐变）
+panel    #0f172a   卡片 / 面板
+panel-2  #0b1220   凹陷面：代码块、表头、画布
+ink      #e2e8f0 / #f8fafc   正文 / 强调
+muted    #94a3b8   dim #64748b   faint #475569
+line     #1e293b   line-strong #334155
+```
+
+圆角只有三档：`3px` 控件内元素、`6px` 控件与面板、`8px` 对话框。层级靠 **描边 + 明度** 建立；静止状态不使用阴影（浮层除外，如 Flow Inspector 与 Ask 对话框）。
+
+### 语义色
+
+七个语义槽位与 Archify 一致，节点、证据、Artifact、状态、diff 共用同一套词汇，颜色不可互换：
+
+| 槽位 | 值 | 含义 | 节点 kind（示例） |
+| --- | --- | --- | --- |
+| frontend | `#22d3ee` | 用户界面、页面、截图 | `page` `ui` `screenshot` |
+| backend | `#34d399` | 服务端、接口、Trace | `api` `service` `worker` `http` |
+| database | `#a78bfa` | 存储、代码 | `database` `storage` `code` |
+| messagebus | `#fb923c` | 队列、事件、日志 | `queue` `topic` `log` |
+| cloud | `#fbbf24` | 基础设施、网关、时间戳 | `gateway` `lb` `config` |
+| security | `#fb7185` | 鉴权、策略、错误 | `auth` `policy` |
+| external | `#94a3b8` | 未归类兜底（不使用哈希随机色） | 其它 |
+
+实现方式是 `.kind-<name> { --kind: <槽位> }`；消费方一律写 `var(--kind, var(--external))` 自带兜底，避免规则顺序互相覆盖。
+
+### 排版与密度
+
+- 单一字族策略：chrome、标签、ID、数值、表格、Flow 节点全部 mono（`JetBrains Mono` → 系统等宽）；只有 Markdown 正文、Case summary、Timeline 标题使用系统 sans。
+- 四级层次：`20–22px/600` 页面与 Case 标题 → `14–15px/600` 区块标题 → `12–13px/400` 正文 → `9–10px/700 + .1em` 大写标签；**不再出现 `clamp(44px, 6vw, 78px)` 这类展示型标题**。
+- 密度基线：正文 13px、表格 11.5px、单元格内边距 `7px 10px`、面板内边距 12–14px、区块段间距 22px。
+- Case 列表是**八列高密度表格**（Case / Type / Environment / Status / Blocks / Evid. / Rev / Updated）加一条四项统计条，不再是 3 列卡片墙；窄屏按 `.col-optional` 逐列收起，不重建第二套界面。
+
+### Flow 画布
+
+- 节点 `176×58`：1px 语义色描边 + 2px 语义色左边条，标题用语义色，kind 作为大写小字副标题。
+- 画布高度贴合布局结果（夹取在 `260–620px`），不再固定预留空画布。
+- 首次 `fitView` 设 `minZoom: 0.6`：节点标签是信息本体，保留可读下限并允许平移；全貌由 MiniMap 与 Controls 提供。
 
 ---
 
