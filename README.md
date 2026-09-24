@@ -137,6 +137,7 @@ Bundle 默认插入一个 `tracebook` Host plugin。在 `~/.dsh/profiles/web/cor
 - id: tracebook
   config:
     artifactDirectory: /absolute/path/to/tracebook-data/artifacts
+    artifactIngestRoot: /absolute/path/to/workspace
     seedExampleCase: true
 ```
 
@@ -145,6 +146,7 @@ Patch 按行定位：没写的字段保持原值，但 `config` 是**整块替�
 | 字段 | 默认 | 用途 |
 | --- | --- | --- |
 | `artifactDirectory` | `.tracebook/artifacts`（相对工作目录） | Artifact 文件目录。**多机器 / GUI 场景建议改成绝对路径**，否则数据会跟着工作目录漂移 |
+| `artifactIngestRoot` | 未配置（`path` 摄入被拒） | 允许 Artifact 用 `path` 引用本地文件的 allow-list 根目录。未配置时 `tracebook_update` 传 `path` 会被拒（`INVALID_INPUT: path ingestion is disabled`）；配置后仍受 `realpath` 越界防护，只能摄入根内文件 |
 | `webDirectory` | `dist/index.js` 同级的 `dist/web/` | 自定义已构建 Viewer 目录，一般不用改 |
 | `metadataOnlyArtifacts` | `false` | 仅保存 Artifact 元数据、不写 payload；主要用于受限部署和测试 |
 | `seedExampleCase` | `false` | 启动时幂等写入一个覆盖 8 类 Block 与 5 类 Artifact 的完整 mock Case |

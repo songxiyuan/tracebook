@@ -382,21 +382,56 @@ export function buildBlockSchemaReference(): string {
     }).toJSONSchema
     if (typeof toJsonSchema !== 'function') return HAND_WRITTEN_BLOCK_REFERENCE
     const json = toJsonSchema(blockSchema, { unrepresentable: 'any', io: 'input' })
-    const variants = (json.oneOf ?? json.anyOf) as Array<Record<string, unknown>> | undefined
+    const variants = (json.oneOf ?? json.anyOf) as Array<JsonSchemaNode> | undefined
     if (!variants?.length) return HAND_WRITTEN_BLOCK_REFERENCE
     const lines = variants.map((variant) => {
-      const properties = (variant.properties ?? {}) as Record<string, { const?: unknown }>
-      const required = new Set((variant.required as string[] | undefined) ?? [])
+      const properties = (variant.properties ?? {}) as Record<string, JsonSchemaNode>
+      const required = new Set(variant.required ?? [])
       const typeName = String(properties.type?.const ?? '?')
       const fields = Object.keys(properties)
         .filter((key) => key !== 'type')
-        .map((key) => (required.has(key) ? key : `${key}?`))
+        .map((key) => describeField(key, properties[key], required.has(key)))
       return `${typeName}: ${fields.join(', ')}`
     })
     return lines.join('\n')
   } catch {
     return HAND_WRITTEN_BLOCK_REFERENCE
   }
+}
+
+/** Minimal shape of the JSON Schema nodes `z.toJSONSchema` emits, for the reference builder. */
+interface JsonSchemaNode {
+  type?: string | string[]
+  const?: unknown
+  required?: string[]
+  properties?: Record<string, JsonSchemaNode>
+  items?: JsonSchemaNode
+  anyOf?: JsonSchemaNode[]
+  oneOf?: JsonSchemaNode[]
+}
+
+/**
+ * Render one field of a block for the reference line. A field whose value is an
+ * array of objects is expanded to `field[{sub, sub?}]` so the model sees the
+ * element shape — the top-level name alone (`items`, `edges`, `columns`) is not
+ * enough to build a valid block and was the cause of repeated INVALID_INPUT
+ * guesses (facts items as bare strings, flow edges as {from,to}, table columns
+ * as a 2-D array).
+ */
+function describeField(key: string, node: JsonSchemaNode | undefined, isRequired: boolean): string {
+  const name = isRequired ? key : `${key}?`
+  const itemShape = node?.type === 'array' ? objectShape(node.items) : undefined
+  return itemShape ? `${name}[{${itemShape}}]` : name
+}
+
+/** Comma-joined `sub` / `sub?` field list for an object schema node, or undefined if it is not an object. */
+function objectShape(node: JsonSchemaNode | undefined): string | undefined {
+  const object = node && (node.properties ? node : node.anyOf?.find((v) => v.properties) ?? node.oneOf?.find((v) => v.properties))
+  if (!object?.properties) return undefined
+  const required = new Set(object.required ?? [])
+  const keys = Object.keys(object.properties)
+  if (!keys.length) return undefined
+  return keys.map((sub) => (required.has(sub) ? sub : `${sub}?`)).join(', ')
 }
 
 /** Fallback used only if the schema-to-JSON-Schema conversion is unavailable. */

@@ -56,6 +56,21 @@ describe('block schema reference', () => {
       expect(reference).toContain(`${type}:`)
     }
   })
+
+  // Regression: the reference used to list only the top-level array field name
+  // (`items`, `edges`, `columns`), so a model guessed the element shape and hit
+  // INVALID_INPUT — facts items as bare strings, flow edges as {from,to}, table
+  // columns as a 2-D array. The element shape must be spelled out inline.
+  it('spells out the element shape of object-array fields', () => {
+    const reference = buildBlockSchemaReference()
+    expect(reference).toContain('items[{label, value}]')
+    expect(reference).toMatch(/edges\[\{id, source, target[^\]]*\}\]/)
+    expect(reference).toContain('columns[{key, label}]')
+    // The bare field name must no longer stand alone for these fields.
+    expect(reference).not.toMatch(/facts:[^\n]*\bitems\b(?!\[)/)
+    expect(reference).not.toMatch(/flow:[^\n]*\bedges\b(?!\[)/)
+    expect(reference).not.toMatch(/table:[^\n]*\bcolumns\b(?!\[)/)
+  })
 })
 
 describe('sequence block', () => {
