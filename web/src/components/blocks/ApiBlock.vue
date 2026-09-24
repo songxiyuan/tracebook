@@ -10,12 +10,32 @@ import {
   type HarDocumentView,
 } from '../../../../src/core/har'
 import { artifactUrl } from '../../api'
+import { buildCurl, copyText } from '../../clipboard'
 
 const props = defineProps<{ block: z.infer<typeof apiBlockSchema>; artifacts?: Artifact[] }>()
 const emit = defineEmits<{ ask: [selection: { type: 'api'; id: string; label?: string }] }>()
 
 const query = ref('')
 const openId = ref('')
+const copiedCurlId = ref('')
+
+/** A copy-pasteable cURL for the endpoint, using the recorded body example when present. */
+function endpointCurl(endpoint: ApiEndpoint): string {
+  const headers: Record<string, string> = {}
+  const body = endpoint.request?.body
+  let bodyStr: string | undefined
+  if (body?.example !== undefined) {
+    if (body.contentType) headers['Content-Type'] = body.contentType
+    bodyStr = typeof body.example === 'string' ? body.example : JSON.stringify(body.example)
+  }
+  return buildCurl({ method: endpoint.method, url: endpoint.path, headers, body: bodyStr })
+}
+async function copyCurl(endpoint: ApiEndpoint) {
+  if (await copyText(endpointCurl(endpoint))) {
+    copiedCurlId.value = endpoint.id
+    setTimeout(() => { if (copiedCurlId.value === endpoint.id) copiedCurlId.value = '' }, 1500)
+  }
+}
 
 /**
  * HAR is read lazily, per endpoint, only when a reader opens it. Flat rather
@@ -329,7 +349,12 @@ function artifactName(id: string): string {
               <div class="api-detail">
                 <div class="api-detail-grid">
                   <section class="api-detail-section">
-                    <p class="api-detail-label">Request</p>
+                    <p class="api-detail-label">
+                      Request
+                      <button class="api-curl-btn no-print" :title="copiedCurlId === row.endpoint.id ? 'cURL 已复制' : '复制为 cURL'" @click.stop="copyCurl(row.endpoint)">
+                        {{ copiedCurlId === row.endpoint.id ? '✓ cURL' : 'Copy cURL' }}
+                      </button>
+                    </p>
                     <table v-if="row.endpoint.request?.params?.length" class="api-params">
                       <thead><tr><th>Name</th><th>In</th><th>Type</th><th>Example</th><th>Source</th></tr></thead>
                       <tbody>

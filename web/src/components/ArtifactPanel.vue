@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import type { Artifact } from '../../../src/core/model'
 import { artifactUrl } from '../api'
 import { isImageArtifact } from '../artifact-kind'
+import { absoluteUrl, copyText } from '../clipboard'
 
 const props = defineProps<{ artifacts: Artifact[] }>()
 
@@ -69,6 +70,19 @@ function toggle(artifact: Artifact) {
 function markImageFailed(id: string) {
   imageFailed.value = { ...imageFailed.value, [id]: true }
 }
+
+/** A stable download filename: prefer the recorded name, fall back to the id. */
+function downloadName(artifact: Artifact): string {
+  return artifact.name || artifact.id
+}
+
+const copiedId = ref('')
+async function copyArtifactLink(artifact: Artifact) {
+  if (await copyText(absoluteUrl(artifactUrl(artifact.id)))) {
+    copiedId.value = artifact.id
+    setTimeout(() => { if (copiedId.value === artifact.id) copiedId.value = '' }, 1500)
+  }
+}
 </script>
 
 <template>
@@ -118,7 +132,13 @@ function markImageFailed(id: string) {
             </p>
           </template>
           <p v-else class="artifact-note">No inline preview for this type.</p>
-          <a :href="artifactUrl(artifact.id)" target="_blank">Open raw ↗</a>
+          <div class="artifact-actions">
+            <a :href="artifactUrl(artifact.id)" target="_blank">Open raw ↗</a>
+            <a :href="artifactUrl(artifact.id)" :download="downloadName(artifact)">Download</a>
+            <button class="artifact-copy" :title="copiedId === artifact.id ? '链接已复制' : '复制直链'" @click="copyArtifactLink(artifact)">
+              {{ copiedId === artifact.id ? '✓ Copied' : 'Copy link' }}
+            </button>
+          </div>
         </div>
       </article>
     </div>

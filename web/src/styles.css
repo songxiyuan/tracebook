@@ -1279,6 +1279,26 @@ table { width: 100%; border-collapse: collapse; }
 .case-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .case-actions .ghost { font: 500 11px/1 var(--font-mono); }
 
+/* Inline copy actions (block deep-link, cURL, artifact link/download). */
+.api-curl-btn,
+.artifact-copy {
+  margin-left: 8px;
+  padding: 1px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--panel-2);
+  color: var(--muted);
+  font: 600 9.5px/1.6 var(--font-mono);
+  letter-spacing: .03em;
+  cursor: pointer;
+}
+.api-curl-btn:hover,
+.artifact-copy:hover { border-color: var(--frontend); color: var(--frontend); }
+.artifact-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 8px; }
+.artifact-actions a { color: var(--frontend); font: 500 11px/1.4 var(--font-mono); text-decoration: none; }
+.artifact-actions .artifact-copy { margin-left: 0; }
+
+
 /* Print: drop the app chrome and navigation, keep the document readable on paper. */
 @media print {
   .topbar,
