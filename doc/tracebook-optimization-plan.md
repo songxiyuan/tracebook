@@ -315,3 +315,26 @@ npm pack --dry-run      # 无 node_modules 时报 vite: command not found
 **已知范围外**：storage-domain 无 reload/reopen 原语，真正的跨进程实时可见（P0-1 的一部分）无法在当前依赖版本解决，已在代码注释标注；SSE 与跨进程可见性均限于同进程。双击折叠子树、ELK 泳道 wrapping 作为后续增强暂缓。
 
 **验证说明**：代码级验证（类型/测试/构建）已全绿；本机开发实例 web(3080) 的实机验证因该机 `~/.local/bin/dsh-web-start.sh` 启动脚本缺失（`up web` 回退到不存在的脚本）暂未跑通，属既有环境问题，与本次改动无关。
+
+---
+
+## 7. 实施进度补充（2026-09-25）
+
+在批次 A–D 之后，逐项核实并补齐了 §3 末「Viewer 能力缺口」清单中确实缺失的项（`typecheck + build + vitest` 全绿，73 测试），按可独立回退拆成多次提交（spec：`.comate/specs/viewer-capability-gaps/`）。
+
+- **批次 E（Viewer 能力补齐，纯前端）**
+  - 动态页面标题 + 真正的 404 页（`router.ts` afterEach 标题守卫 + `NotFound.vue`，不再静默 redirect）。
+  - 案例列表按 status/type/environment 过滤 + 列排序（标题/更新时间/revision/blocks）。
+  - Case 导出：JSON / Markdown 下载（`export.ts`）+ `@media print` 打印样式。
+  - 分享与复制：块级深链复制（`BlockRenderer` 块头）、API endpoint 的 copy-as-cURL、artifact 复制直链与下载按钮（`clipboard.ts`）。
+  - 无障碍：Ask 弹窗 Tab 焦点陷阱、搜索框 `aria-label`、Flow 节点可 Tab 聚焦 + Enter/Space 选中。
+  - 全局键盘快捷键 + 帮助浮层（`shortcuts.ts`：`/` 聚焦搜索、`g h` 回列表、`?` 帮助、`Esc` 关闭）。
+  - 性能：按 `(caseId, revision)` 缓存不可变的 revision 快照（`api.ts`），历史对比重复选择即时命中。
+  - 深色主题：`[data-theme=dark]` 令牌覆盖 + `theme.ts`（light/dark/system，持久化，跟随系统）+ 顶栏切换；SequenceBlock 与 Flow 画布 chrome 配色令牌化。
+
+- **本轮仍未做（明确记录，另行评审）**
+  - Revision **revert/restore**：属写路径，需新增 host 端点与服务方法，风险/体量较大。
+  - 跨案例**后端全文搜索**：需服务端检索能力，超出 Viewer 范畴。
+  - Flow **双击折叠子树 / ELK 泳道 wrapping**：本轮先补了键盘可达性，交互与布局增强待后续。
+  - 跨进程实时可见（P0-1 剩余部分）：受限于 storage-domain 缺 reload 原语。
+

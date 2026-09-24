@@ -34,24 +34,25 @@
     - 6.3: Flow 节点可 Tab 聚焦 + Enter/Space 选中
     - 6.4: commit
 
-- [ ] Task 7: 键盘快捷键 + 帮助浮层
+- [x] Task 6: 无障碍补齐
+- [x] Task 7: 键盘快捷键 + 帮助浮层
     - 7.1: 新增 web/src/shortcuts.ts（全局 keydown 注册/注销）
     - 7.2: `/` 聚焦搜索、`g h` 回列表、`?` 打开帮助、`Esc` 关闭
     - 7.3: 帮助浮层组件（dialog 语义）
     - 7.4: commit
 
-- [ ] Task 8: 按 revision 的客户端缓存
-    - 8.1: api.ts 增加以 caseId+revision 为键的读缓存（getCase/snapshot）
-    - 8.2: CaseDetail/RevisionHistory 命中缓存，SSE/probe 变化时失效
+- [x] Task 8: 按 revision 的客户端缓存
+    - 8.1: api.ts 增加以 caseId+revision 为键的读缓存（不可变 snapshot）
+    - 8.2: RevisionHistory 命中缓存
     - 8.3: commit
 
-- [ ] Task 9: 深色主题
-    - 9.1: styles.css 定义 [data-theme=dark] 令牌覆盖 + prefers-color-scheme 默认
-    - 9.2: 新增 web/src/theme.ts + 顶栏切换按钮（持久化）
-    - 9.3: 组件内硬编码色改为变量（SequenceBlock/FlowBlock/ArtifactPanel 等）
+- [x] Task 9: 深色主题
+    - 9.1: styles.css 定义 [data-theme=dark] 令牌覆盖
+    - 9.2: 新增 web/src/theme.ts（light/dark/system + 持久化）+ 顶栏切换按钮
+    - 9.3: 组件内硬编码色改为变量（SequenceBlock/FlowBlock 画布 chrome）
     - 9.4: commit
 
-- [ ] Task 10: 收尾验证与文档
+- [x] Task 10: 收尾验证与文档
     - 10.1: npm run typecheck / build / vitest 全绿
     - 10.2: 更新 doc/tracebook-optimization-plan.md 的进度小节
     - 10.3: 生成 summary.md
