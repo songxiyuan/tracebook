@@ -64,11 +64,11 @@ describe('block schema reference', () => {
   it('spells out the element shape of object-array fields', () => {
     const reference = buildBlockSchemaReference()
     expect(reference).toContain('items[{label, value}]')
-    expect(reference).toMatch(/edges\[\{id, source, target[^\]]*\}\]/)
+    expect(reference).toMatch(/edges\??\[\{id, source, target[^\]]*\}\]/)
     expect(reference).toContain('columns[{key, label}]')
     // The bare field name must no longer stand alone for these fields.
     expect(reference).not.toMatch(/facts:[^\n]*\bitems\b(?!\[)/)
-    expect(reference).not.toMatch(/flow:[^\n]*\bedges\b(?!\[)/)
+    expect(reference).not.toMatch(/flow:[^\n]*\bedges\b(?!\??\[)/)
     expect(reference).not.toMatch(/table:[^\n]*\bcolumns\b(?!\[)/)
   })
 })
@@ -229,5 +229,112 @@ describe('api block', () => {
       id: 'api', type: 'api',
       endpoints: [endpoint({ expectedMs: 200 })],
     }).success).toBe(true)
+  })
+})
+
+describe('flow block variants (archify diagrams)', () => {
+  const workflow = {
+    schema_version: 1,
+    diagram_type: 'workflow',
+    meta: { title: 'Usage flow' },
+    lanes: [{ id: 'user', label: 'User' }],
+    nodes: [
+      { id: 'ask', lane: 'user', col: 0, type: 'frontend', label: 'Tell AI' },
+      { id: 'run', lane: 'user', col: 1, type: 'backend', label: 'Process' },
+    ],
+    edges: [{ id: 'e1', from: 'ask', to: 'run', role: 'main' }],
+  }
+
+  it('defaults an omitted variant to basic', () => {
+    const parsed = blockSchema.parse({ id: 'g', type: 'flow', nodes: [{ id: 'a', label: 'A' }], edges: [] })
+    if (parsed.type !== 'flow') throw new Error('expected a flow block')
+    expect(parsed.variant).toBe('basic')
+  })
+
+  it('accepts an embedded archify workflow diagram', () => {
+    const parsed = blockSchema.parse({ id: 'wf', type: 'flow', variant: 'workflow', diagram: workflow })
+    if (parsed.type !== 'flow') throw new Error('expected a flow block')
+    expect(parsed.variant).toBe('workflow')
+    expect(parsed.diagram?.diagram_type).toBe('workflow')
+  })
+
+  it('preserves archify pixel/routing hint fields through a parse (loose objects)', () => {
+    const parsed = blockSchema.parse({
+      id: 'wf', type: 'flow', variant: 'workflow',
+      diagram: {
+        ...workflow,
+        edges: [{ id: 'e1', from: 'ask', to: 'run', role: 'main', route: 'orthogonal', via: [[1, 2]], channelX: 40 }],
+      },
+    })
+    if (parsed.type !== 'flow' || parsed.diagram?.diagram_type !== 'workflow') throw new Error('expected a workflow flow block')
+    const edge = parsed.diagram.edges[0] as Record<string, unknown>
+    expect(edge.channelX).toBe(40)
+    expect(edge.via).toEqual([[1, 2]])
+  })
+
+  it('rejects a variant whose diagram_type does not match', () => {
+    const result = blockSchema.safeParse({ id: 'wf', type: 'flow', variant: 'dataflow', diagram: workflow })
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.issues.some((issue) => issue.message.includes('does not match diagram_type'))).toBe(true)
+  })
+
+  it('requires a diagram for a typed variant', () => {
+    const result = blockSchema.safeParse({ id: 'wf', type: 'flow', variant: 'workflow' })
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.issues.some((issue) => issue.message.includes('requires a "diagram"'))).toBe(true)
+  })
+
+  it('rejects an archify edge that points at a missing node', () => {
+    const result = blockSchema.safeParse({
+      id: 'wf', type: 'flow', variant: 'workflow',
+      diagram: { ...workflow, edges: [{ id: 'e1', from: 'ask', to: 'ghost' }] },
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.issues.some((issue) => issue.message.includes('missing to ghost'))).toBe(true)
+  })
+
+  it('rejects an architecture boundary that wraps a missing component', () => {
+    const result = blockSchema.safeParse({
+      id: 'arch', type: 'flow', variant: 'architecture',
+      diagram: {
+        schema_version: 1,
+        diagram_type: 'architecture',
+        meta: { title: 'System' },
+        components: [{ id: 'web', type: 'frontend', label: 'Web' }],
+        boundaries: [{ kind: 'region', label: 'VPC', wraps: ['web', 'ghost'] }],
+      },
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.issues.some((issue) => issue.message.includes('references missing node ghost'))).toBe(true)
+  })
+
+  it('accepts lifecycle and dataflow diagrams', () => {
+    const lifecycle = blockSchema.safeParse({
+      id: 'lc', type: 'flow', variant: 'lifecycle',
+      diagram: {
+        schema_version: 1, diagram_type: 'lifecycle', meta: { title: 'States' },
+        lanes: [{ id: 'main', label: 'Main' }],
+        states: [
+          { id: 's0', type: 'start', label: 'Start', lane: 'main', col: 0 },
+          { id: 's1', type: 'success', label: 'Done', lane: 'main', col: 1 },
+        ],
+        transitions: [{ from: 's0', to: 's1' }],
+      },
+    })
+    expect(lifecycle.success).toBe(true)
+
+    const dataflow = blockSchema.safeParse({
+      id: 'df', type: 'flow', variant: 'dataflow',
+      diagram: {
+        schema_version: 1, diagram_type: 'dataflow', meta: { title: 'Pipeline' },
+        stages: [{ label: 'Ingest' }, { label: 'Serve' }],
+        nodes: [
+          { id: 'src', type: 'external', label: 'Source', stage: 0, row: 0 },
+          { id: 'sink', type: 'database', label: 'Store', stage: 1, row: 0 },
+        ],
+        flows: [{ from: 'src', to: 'sink', label: 'rows' }],
+      },
+    })
+    expect(dataflow.success).toBe(true)
   })
 })

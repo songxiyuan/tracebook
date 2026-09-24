@@ -206,6 +206,13 @@ img { max-width: 100%; }
 .kind-queue, .kind-topic, .kind-bus, .kind-kafka, .kind-stream, .kind-event, .kind-messagebus, .kind-log { --kind: var(--messagebus); }
 .kind-cloud, .kind-cdn, .kind-lb, .kind-gateway, .kind-infra, .kind-k8s, .kind-config { --kind: var(--cloud); }
 .kind-auth, .kind-security, .kind-policy, .kind-waf, .kind-iam, .kind-oauth, .kind-token { --kind: var(--security); }
+.kind-external, .kind-neutral { --kind: var(--external); }
+/* Lifecycle state types carry their own semantic colours. */
+.kind-start, .kind-active { --kind: var(--frontend); }
+.kind-waiting { --kind: var(--messagebus); }
+.kind-decision { --kind: var(--cloud); }
+.kind-success { --kind: var(--backend); }
+.kind-failure { --kind: var(--security); }
 
 /* --- Case library ---------------------------------------------------------- */
 
@@ -905,8 +912,12 @@ table { width: 100%; border-collapse: collapse; }
 /* Flow nodes: semantic border, colored title, muted kind caption. The kind class
    supplies --kind; every use carries the neutral fallback itself so rule order
    can never shadow a semantic category. */
-.vue-flow__node {
-  width: 176px;
+/* Flow content nodes: semantic border, colored title, muted kind caption. The
+   kind class supplies --kind; every use carries the neutral fallback itself so
+   rule order can never shadow a semantic category. Group boxes (.flow-group)
+   are laid out by ELK and painted by the component, so they opt out here. */
+.vue-flow__node:not(.flow-group) {
+  width: 190px;
   min-height: 52px;
   padding: 8px 10px 8px 11px;
   display: flex;
@@ -920,18 +931,29 @@ table { width: 100%; border-collapse: collapse; }
   text-align: left;
 }
 
+/* Group background boxes: no card chrome, and click-through to the nodes above. */
+.vue-flow__node.flow-group {
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  pointer-events: none;
+}
+
 .vue-flow__node.selected {
   border-color: var(--kind, var(--external)) !important;
   box-shadow: 0 0 0 2px var(--canvas), 0 0 0 3px var(--kind, var(--external)) !important;
 }
 
-.flow-node { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.flow-node { position: relative; display: flex; flex-direction: column; gap: 3px; min-width: 0; width: 100%; }
 .flow-node strong { color: var(--kind, var(--external)); font: 600 11.5px/1.35 var(--font-mono); overflow-wrap: anywhere; }
 .flow-node small { color: var(--dim); font: 700 9px/1.3 var(--font-mono); letter-spacing: .1em; text-transform: uppercase; }
 
 .vue-flow__edge-text { fill: var(--muted) !important; font: 500 9px var(--font-mono) !important; }
 .vue-flow__edge-textbg { fill: var(--panel-2) !important; }
-.vue-flow__edge-path { stroke: var(--line-strong) !important; }
+/* No !important here: OrthogonalEdge sets a per-edge stroke inline (role/variant
+   colour), and an !important rule would flatten every edge back to grey. */
+.vue-flow__edge-path { stroke: var(--line-strong); fill: none; }
 .vue-flow__edge.selected .vue-flow__edge-path { stroke: var(--frontend) !important; }
 .vue-flow__handle { width: 5px !important; height: 5px !important; border: 1px solid var(--line-strong) !important; background: var(--panel-2) !important; }
 

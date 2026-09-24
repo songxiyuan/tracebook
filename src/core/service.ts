@@ -14,6 +14,7 @@ import {
   type CaseDocument,
 } from './model.js'
 import type { ArtifactStore } from './artifact-store.js'
+import { diagramEdgeEndpoints, diagramNodeLabels } from './archify.js'
 import { TracebookError } from './errors.js'
 import type { CaseRepository } from './repository.js'
 
@@ -135,8 +136,15 @@ function compactBlock(block: Block, maxLength = 900): string {
       content = block.items.map((item) => `${item.label}=${String(item.value)}`).join('; ')
       break
     case 'flow': {
-      const labels = new Map(block.nodes.map((node) => [node.id, node.label]))
-      content = block.edges.map((edge) =>
+      if (block.variant !== 'basic' && block.diagram) {
+        const labels = diagramNodeLabels(block.diagram)
+        content = diagramEdgeEndpoints(block.diagram).map((edge) =>
+          `${labels.get(edge.from) ?? edge.from} -> ${labels.get(edge.to) ?? edge.to}${edge.label ? ` (${edge.label})` : ''}`,
+        ).join('; ')
+        break
+      }
+      const labels = new Map((block.nodes ?? []).map((node) => [node.id, node.label]))
+      content = (block.edges ?? []).map((edge) =>
         `${labels.get(edge.source) ?? edge.source} -> ${labels.get(edge.target) ?? edge.target}${edge.label ? ` (${edge.label})` : ''}`,
       ).join('; ')
       break
@@ -247,11 +255,11 @@ function referenceWarnings(blocks: Block[], artifacts: Artifact[]): string[] {
     for (const ref of block.artifactRefs ?? []) missingArtifact(ref, `Block "${block.id}"`)
     switch (block.type) {
       case 'flow':
-        for (const node of block.nodes) {
+        for (const node of block.nodes ?? []) {
           for (const ref of node.artifactRefs ?? []) missingArtifact(ref, `Flow node "${node.id}"`)
           for (const ref of node.relatedBlockIds ?? []) missingBlock(ref, `Flow node "${node.id}"`)
         }
-        for (const edge of block.edges) {
+        for (const edge of block.edges ?? []) {
           for (const ref of edge.artifactRefs ?? []) missingArtifact(ref, `Flow edge "${edge.id}"`)
           for (const ref of edge.relatedBlockIds ?? []) missingBlock(ref, `Flow edge "${edge.id}"`)
         }

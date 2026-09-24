@@ -1,5 +1,11 @@
 import { z } from 'zod'
 import { TracebookError } from './errors.js'
+import {
+  archifyDiagramSchema,
+  diagramEdgeEndpoints,
+  diagramExtraNodeRefs,
+  diagramNodeIds,
+} from './archify.js'
 
 const nonEmpty = z.string().trim().min(1)
 const metadataSchema = z.record(z.string(), z.unknown())
@@ -47,30 +53,69 @@ export const flowEdgeSchema = z.object({
   metadata: metadataSchema.optional(),
 })
 
+/**
+ * A flow block is a diagram. `variant` selects its shape:
+ *
+ * - `basic` (default, backward compatible): Tracebook's own topology graph of
+ *   `nodes` + `edges`.
+ * - `workflow` / `architecture` / `dataflow` / `lifecycle`: an archify diagram
+ *   stored verbatim under `diagram`, whose `diagram_type` must equal `variant`.
+ *
+ * Sequence diagrams keep their own block type (`sequenceBlockSchema`); they are
+ * a time-ordered exchange, not a topology graph.
+ */
+export const flowVariantEnum = z.enum(['basic', 'workflow', 'architecture', 'dataflow', 'lifecycle'])
+
 export const flowBlockSchema = blockBaseSchema.extend({
   type: z.literal('flow'),
+  variant: flowVariantEnum.default('basic'),
+  // variant === 'basic'
   direction: z.enum(['TB', 'BT', 'LR', 'RL']).default('TB'),
-  nodes: z.array(flowNodeSchema),
-  edges: z.array(flowEdgeSchema),
+  nodes: z.array(flowNodeSchema).optional(),
+  edges: z.array(flowEdgeSchema).optional(),
+  // variant !== 'basic': the archify document, kept verbatim.
+  diagram: archifyDiagramSchema.optional(),
 }).superRefine((block, ctx) => {
-  // P1-1: node and edge ids must be unique within the block, otherwise a later
-  // upsert or a Viewer lookup silently resolves to whichever duplicate wins.
+  if (block.variant === 'basic') {
+    validateBasicFlow(block, ctx)
+    return
+  }
+  // A typed variant must carry a matching archify diagram and nothing else.
+  if (!block.diagram) {
+    ctx.addIssue({ code: 'custom', message: `flow variant "${block.variant}" requires a "diagram"` })
+    return
+  }
+  if (block.diagram.diagram_type !== block.variant) {
+    ctx.addIssue({ code: 'custom', message: `flow variant "${block.variant}" does not match diagram_type "${block.diagram.diagram_type}"` })
+    return
+  }
+  validateArchifyDiagram(block.diagram, ctx)
+})
+
+/** Unique node/edge ids and no dangling edge endpoints, for the basic topology graph. */
+function validateBasicFlow(block: { nodes?: z.infer<typeof flowNodeSchema>[]; edges?: z.infer<typeof flowEdgeSchema>[] }, ctx: z.RefinementCtx) {
+  const nodes = block.nodes
+  if (!nodes) {
+    ctx.addIssue({ code: 'custom', message: 'flow variant "basic" requires "nodes"' })
+    return
+  }
+  const edges = block.edges ?? []
   const seenNodeIds = new Set<string>()
-  for (const node of block.nodes) {
+  for (const node of nodes) {
     if (seenNodeIds.has(node.id)) {
       ctx.addIssue({ code: 'custom', message: `Duplicate flow node id ${node.id}` })
     }
     seenNodeIds.add(node.id)
   }
   const seenEdgeIds = new Set<string>()
-  for (const edge of block.edges) {
+  for (const edge of edges) {
     if (seenEdgeIds.has(edge.id)) {
       ctx.addIssue({ code: 'custom', message: `Duplicate flow edge id ${edge.id}` })
     }
     seenEdgeIds.add(edge.id)
   }
-  const nodeIds = new Set(block.nodes.map((node) => node.id))
-  for (const edge of block.edges) {
+  const nodeIds = new Set(nodes.map((node) => node.id))
+  for (const edge of edges) {
     if (!nodeIds.has(edge.source)) {
       ctx.addIssue({ code: 'custom', message: `Edge ${edge.id} references missing source ${edge.source}` })
     }
@@ -78,7 +123,32 @@ export const flowBlockSchema = blockBaseSchema.extend({
       ctx.addIssue({ code: 'custom', message: `Edge ${edge.id} references missing target ${edge.target}` })
     }
   }
-})
+}
+
+/** Unique node ids and no reference (edge endpoint, boundary wrap, mainPath) to a missing node, for an archify diagram. */
+function validateArchifyDiagram(diagram: z.infer<typeof archifyDiagramSchema>, ctx: z.RefinementCtx) {
+  const ids = diagramNodeIds(diagram)
+  const seen = new Set<string>()
+  for (const id of ids) {
+    if (seen.has(id)) {
+      ctx.addIssue({ code: 'custom', message: `Duplicate ${diagram.diagram_type} node id ${id}` })
+    }
+    seen.add(id)
+  }
+  for (const edge of diagramEdgeEndpoints(diagram)) {
+    if (!seen.has(edge.from)) {
+      ctx.addIssue({ code: 'custom', message: `${diagram.diagram_type} edge ${edge.handle} references missing from ${edge.from}` })
+    }
+    if (!seen.has(edge.to)) {
+      ctx.addIssue({ code: 'custom', message: `${diagram.diagram_type} edge ${edge.handle} references missing to ${edge.to}` })
+    }
+  }
+  for (const extra of diagramExtraNodeRefs(diagram)) {
+    if (!seen.has(extra.ref)) {
+      ctx.addIssue({ code: 'custom', message: `${diagram.diagram_type} ${extra.where} references missing node ${extra.ref}` })
+    }
+  }
+}
 
 export const tableBlockSchema = blockBaseSchema.extend({
   type: z.literal('table'),
@@ -438,7 +508,7 @@ function objectShape(node: JsonSchemaNode | undefined): string | undefined {
 const HAND_WRITTEN_BLOCK_REFERENCE = [
   'markdown: id, title?, description?, artifactRefs?, content',
   'facts: id, title?, description?, artifactRefs?, items[{label,value}]',
-  'flow: id, title?, description?, artifactRefs?, direction?, nodes[{id,label,kind?,relatedBlockIds?}], edges[{id,source,target,label?}]',
+  'flow: id, title?, description?, artifactRefs?, variant? (basic|workflow|architecture|dataflow|lifecycle; default basic). basic: direction?, nodes[{id,label,kind?,relatedBlockIds?}], edges[{id,source,target,label?}]. workflow/architecture/dataflow/lifecycle: diagram (an archify diagram JSON whose diagram_type equals variant)',
   'table: id, title?, description?, artifactRefs?, columns[{key,label}], rows',
   'timeline: id, title?, description?, artifactRefs?, items[{title,description?,timestamp?,artifactRefs?}]',
   'evidence: id, title?, description?, artifactRefs?, items[{id,kind,title,summary?,artifactRef?}]',

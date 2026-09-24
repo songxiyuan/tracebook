@@ -61,7 +61,7 @@ export function registerTools(ctx: Context, service: TracebookService) {
         upsertBlocks: {
           type: 'array',
           items: { type: 'json' },
-          description: 'Complete markdown, facts, flow, table, timeline, evidence, gallery, or api blocks to upsert by id. See the tool description for each type\'s field reference.',
+          description: 'Complete markdown, facts, flow, table, timeline, evidence, gallery, api, or sequence blocks to upsert by id. A flow block\'s variant selects a basic node/edge graph or an embedded archify workflow/architecture/dataflow/lifecycle diagram. See the tool description for each type\'s field reference.',
         },
         artifacts: {
           type: 'array',

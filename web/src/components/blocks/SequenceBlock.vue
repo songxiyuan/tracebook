@@ -79,8 +79,10 @@ const messages = computed<LaidMessage[]>(() =>
       y,
       labelX: self ? x1 + SELF_LOOP_W / 2 : (x1 + x2) / 2,
       self,
-      // sync/async share the solid line; only a stream (an open push) is dashed.
-      dashed: message.kind === 'stream',
+      // A synchronous call is a solid line; async and stream (both non-blocking
+      // pushes) read as dashed — the same convention the flow diagrams use for
+      // async edges, so the two views stay visually consistent.
+      dashed: message.kind !== 'sync',
       // sync is a closed arrowhead; async and stream use the open one.
       markerId: message.kind === 'sync' ? 'seq-arrow-solid' : 'seq-arrow-open',
       meta: messageMeta(message),
@@ -256,20 +258,20 @@ function participantTitle(participant: LaidParticipant): string {
   cursor: pointer;
 }
 .seq-message.is-link:hover .seq-arrow {
-  stroke: #2563eb;
-  color: #2563eb;
+  stroke: var(--frontend, #0e7490);
+  color: var(--frontend, #0e7490);
 }
 .seq-message.is-link:hover .seq-head-solid {
-  fill: #2563eb;
+  fill: var(--frontend, #0e7490);
 }
 .seq-message.is-link:hover .seq-head-open {
-  stroke: #2563eb;
+  stroke: var(--frontend, #0e7490);
 }
 .seq-message.is-link:hover .seq-label {
-  fill: #2563eb;
+  fill: var(--frontend, #0e7490);
 }
 .seq-link-mark {
-  fill: #2563eb;
+  fill: var(--frontend, #0e7490);
   font-size: 10px;
 }
 </style>

@@ -615,7 +615,55 @@ AI 负责：
 
 不要要求 AI 输出 x/y 坐标。
 
+### Flow 变体（archify 图）
+
+Flow Block 通过 `variant` 字段支持多种图，默认 `basic`（上面的 nodes/edges 拓扑图，向后兼容）。另外四种直接复用 [archify](../.dsh/skills/archify) 的数据 schema，把 archify 文档原样存入 `diagram` 字段，`diagram.diagram_type` 必须与 `variant` 一致：
+
+| variant | diagram_type | 结构（archify schema） |
+| --- | --- | --- |
+| `workflow` | workflow | lanes / nodes(lane,col,type) / edges(from,to,role,variant) |
+| `architecture` | architecture | components(type,row,col) / boundaries(wraps) / connections(from,to) |
+| `dataflow` | dataflow | stages / nodes(stage,row,type) / flows(from,to,classification) |
+| `lifecycle` | lifecycle | lanes / states(lane,col,type) / transitions(from,to) |
+
+```json
+{
+  "id": "usage-flow",
+  "type": "flow",
+  "variant": "workflow",
+  "diagram": {
+    "schema_version": 1,
+    "diagram_type": "workflow",
+    "meta": { "title": "Tera AI 使用流程" },
+    "lanes": [{ "id": "user", "label": "用户" }],
+    "nodes": [
+      { "id": "ask", "lane": "user", "col": 0, "type": "frontend", "label": "告诉 AI 需求" },
+      { "id": "run", "lane": "user", "col": 1, "type": "backend", "label": "Tera AI 自动处理" }
+    ],
+    "edges": [{ "id": "e1", "from": "ask", "to": "run", "role": "main", "label": "文本指令" }]
+  }
+}
+```
+
+Sequence 图不走 Flow Block，仍由独立的 `sequence` Block 承载（复用既有实现，仅做视觉轻量对齐）。
+
+### schema 复用与几何的边界
+
+- **完全复用 archify 数据 schema**：`src/core/archify.ts` 逐字段翻译 archify 的 JSON Schema 为 Zod；node/edge 等条目为 loose object，archify 的像素/路由提示字段（`viewBox`、`via`、`channelX/Y`、`route`、`fromSide/toSide`、`labelDx/Dy`、`pos`、`size`、`width` 等）会被接受并原样保留，保证 round-trip。
+- **几何由 ELK 决定**：渲染只消费语义字段（`lane`/`col`/`stage`/`row` 作为逻辑序、`type`、`role`、`variant`、`boundaries`、`mainPath`）。像素提示字段在渲染时忽略，符合「Vue Flow 渲染 / ELK 布局」约束。archify 是生成静态 HTML 的 CLI，无法作为库依赖引入，因此 Tracebook 借鉴其视觉语言与 schema，而非直接调用其绘制。
+
+### 渲染管线
+
+`web/src/flow/` 三个模块把上述数据画成图：
+
+- `normalize.ts`：把任意 variant 拍平成统一的 `NormGraph`（nodes/edges/groups + `hasRanks`），渲染层不再分支于 variant。
+- `elk-layout.ts`：按逻辑序开启 ELK `partitioning` 分层，**回读 `edge.sections` 的折线拐点**，并由成员节点计算泳道/分组背景框。这是修复「连线乱」的核心——不再让 Vue Flow 自行画贝塞尔曲线。
+- `OrthogonalEdge.vue`：按 ELK 折线点画圆角正交路径 + 箭头，按 `role/variant` 着色；hover 用加粗变色而非蚂蚁线虚线。
+
+节点按 `type`（componentType）着色（复用 `--frontend/--backend/...` 变量），lifecycle 的 `decision` 画成菱形、`start/success/failure` 画成胶囊。
+
 ---
+
 
 ## 7.4 Table Block
 

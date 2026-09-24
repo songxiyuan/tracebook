@@ -153,7 +153,7 @@ describe('DshCaseRepository over a real DomainFacility', () => {
       id: 'case-2',
       blocks: [
         { id: 'overview', type: 'markdown', content: 'Initial' },
-        { id: 'flow', type: 'flow', direction: 'TB', nodes: [{ id: 'n', label: 'N' }], edges: [] },
+        { id: 'flow', type: 'flow', variant: 'basic', direction: 'TB', nodes: [{ id: 'n', label: 'N' }], edges: [] },
       ],
     }))
     await repository.put(makeCase({
@@ -161,7 +161,7 @@ describe('DshCaseRepository over a real DomainFacility', () => {
       revision: 2,
       blocks: [
         { id: 'overview', type: 'markdown', content: 'Expanded' },
-        { id: 'flow', type: 'flow', direction: 'TB', nodes: [{ id: 'n', label: 'N' }], edges: [] },
+        { id: 'flow', type: 'flow', variant: 'basic', direction: 'TB', nodes: [{ id: 'n', label: 'N' }], edges: [] },
       ],
     }))
 
