@@ -79,8 +79,21 @@ export function listRevisions(caseId: string) {
   return request<{ caseId: string; revisions: CaseRevisionSummary[] }>(`/cases/${encodeURIComponent(caseId)}/revisions`)
 }
 
-export function getRevisionSnapshot(caseId: string, revision: number) {
-  return request<CaseRevisionSnapshot>(`/cases/${encodeURIComponent(caseId)}/revisions/${revision}`)
+/**
+ * A revision snapshot is immutable — `(caseId, revision)` always yields the same
+ * bytes — so it is safe to cache indefinitely. This makes re-picking a revision
+ * in the history diff instant and removes redundant fetches when the reader
+ * toggles between base and compare versions.
+ */
+const snapshotCache = new Map<string, CaseRevisionSnapshot>()
+
+export async function getRevisionSnapshot(caseId: string, revision: number) {
+  const key = `${caseId}:${revision}`
+  const cached = snapshotCache.get(key)
+  if (cached) return cached
+  const snapshot = await request<CaseRevisionSnapshot>(`/cases/${encodeURIComponent(caseId)}/revisions/${revision}`)
+  snapshotCache.set(key, snapshot)
+  return snapshot
 }
 
 export function artifactUrl(artifactId: string, caseId?: string) {
