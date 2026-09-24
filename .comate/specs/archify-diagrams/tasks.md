@@ -48,7 +48,7 @@
 - [x] Task 9: sequence 视觉轻量对齐
     - 9.1: SequenceBlock.vue 配色与 sync/async/stream 箭头样式向 archify 靠拢（不改数据模型）
 
-- [ ] Task 10: 文档与验证收尾
+- [x] Task 10: 文档与验证收尾
     - 10.1: 更新 doc/tracebook-dsh-plugin-design.md（flow 多形态与 archify schema 采用）
     - 10.2: 运行 typecheck / build / 全量测试并修复
     - 10.3: 任务完成后自动 git commit
