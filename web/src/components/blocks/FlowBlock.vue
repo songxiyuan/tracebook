@@ -13,6 +13,9 @@ import { normalize, type NormEdge, type NormGraph, type NormNode } from '../../f
 import { layoutGraph, type Direction, type GroupBox, type LaidOutNode } from '../../flow/elk-layout'
 import OrthogonalEdge from '../../flow/OrthogonalEdge.vue'
 import { useTheme } from '../../theme'
+import { buildPassport, reachable, type GEdge, type GNode } from '../../diagram/graph-analysis'
+import SemanticPassport from '../../diagram/SemanticPassport.vue'
+import { blockLink, copyText } from '../../clipboard'
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 
@@ -36,6 +39,23 @@ const edges = shallowRef<Edge[]>([])
 const layoutNodes = shallowRef<LaidOutNode[]>([])
 const selectedId = ref<string | undefined>(rememberedNodeFor(props.block.id))
 const selected = computed(() => nodeById.value.get(selectedId.value ?? ''))
+
+// Semantic-passport graph model: the NormGraph projected to the shared shape.
+const graphNodes = computed<GNode[]>(() => graph.value.nodes.map((node) => ({
+  id: node.id, label: node.label, kind: node.kind, sublabel: node.sublabel, tag: node.tag,
+})))
+const graphEdges = computed<GEdge[]>(() => graph.value.edges.map((edge) => ({ source: edge.source, target: edge.target, label: edge.label })))
+const passport = computed(() => (selectedId.value ? buildPassport(selectedId.value, graphNodes.value, graphEdges.value) : undefined))
+
+/** Reachability lens: dim everything outside the up/down transitive set of the selection. */
+const reachDir = ref<'up' | 'down' | null>(null)
+const reachSet = computed(() => {
+  if (!reachDir.value || !selectedId.value) return undefined
+  const set = reachable(selectedId.value, graphNodes.value, graphEdges.value, reachDir.value)
+  set.add(selectedId.value)
+  return set
+})
+const passportCopied = ref(false)
 
 // __REST__
 
@@ -279,6 +299,7 @@ function applyHighlight() {
   const term = searchTerm.value.trim().toLowerCase()
   const hidden = hiddenKinds.value
   const near = hover ? neighbourIds(hover) : undefined
+  const reach = reachSet.value
   const kindById = new Map(graph.value.nodes.map((node) => [node.id, node.kind]))
   const labelById = new Map(graph.value.nodes.map((node) => [node.id, node.label.toLowerCase()]))
   const hiddenIds = new Set<string>()
@@ -291,14 +312,19 @@ function applyHighlight() {
     if (kind) classes.push(`kind-${kind}`)
     const shape = (node.data as { shape?: string })?.shape
     if (shape) classes.push(`shape-${shape}`)
-    if (near) classes.push(near.has(node.id) ? 'tb-focus' : 'tb-dim')
+    // Reachability lens wins over hover/search when active.
+    if (reach) classes.push(reach.has(node.id) ? 'tb-focus' : 'tb-dim')
+    else if (near) classes.push(near.has(node.id) ? 'tb-focus' : 'tb-dim')
     else if (term) classes.push((labelById.get(node.id) ?? '').includes(term) ? 'tb-focus' : 'tb-dim')
     node.class = classes.join(' ')
     node.hidden = isHidden
   }
   for (const edge of flowEdges.value) {
-    const incident = hover ? (edge.source === hover || edge.target === hover) : false
-    edge.class = near ? (incident ? 'tb-focus' : 'tb-dim') : ''
+    if (reach) edge.class = (reach.has(edge.source) && reach.has(edge.target)) ? 'tb-focus' : 'tb-dim'
+    else {
+      const incident = hover ? (edge.source === hover || edge.target === hover) : false
+      edge.class = near ? (incident ? 'tb-focus' : 'tb-dim') : ''
+    }
     edge.hidden = hiddenIds.has(edge.source) || hiddenIds.has(edge.target)
   }
 }
@@ -318,11 +344,23 @@ function toggleKind(kind: string) {
 function selectNode(event: { node: { id: string } }) {
   if (event.node.id.startsWith('grp:')) return
   selectedId.value = event.node.id
+  reachDir.value = null
   rememberFlowSelection(props.block.id, event.node.id)
+  // Frame the selection so a passport for an off-screen node still shows it.
+  void fitView({ nodes: [event.node.id], padding: 0.6, maxZoom: 1.4, duration: 320 })
 }
 function clearSelection() {
   selectedId.value = undefined
+  reachDir.value = null
   rememberFlowSelection(props.block.id, undefined)
+}
+function focusNeighbor(id: string) { selectNode({ node: { id } }) }
+function setReach(dir: 'up' | 'down' | null) { reachDir.value = dir }
+async function copyPassportLink() {
+  if (await copyText(blockLink(props.block.id))) {
+    passportCopied.value = true
+    setTimeout(() => { passportCopied.value = false }, 1500)
+  }
 }
 function restoreSelection() {
   const remembered = rememberedNodeFor(props.block.id)
@@ -337,7 +375,7 @@ watch(() => props.block, async () => {
   await layout()
 }, { deep: true })
 watch(selectedId, () => { failedImages.value = [] })
-watch([hoveredId, searchTerm, hiddenKinds], applyHighlight)
+watch([hoveredId, searchTerm, hiddenKinds, reachDir], applyHighlight)
 </script>
 
 <template>
@@ -429,15 +467,26 @@ watch([hoveredId, searchTerm, hiddenKinds], applyHighlight)
         ><i class="swatch" aria-hidden="true"></i>{{ kind }}</button>
       </div>
     </div>
-    <aside v-if="selected" class="flow-inspector">
-      <button aria-label="Close inspector" @click="clearSelection">×</button>
-      <span>{{ selected.kind || 'node' }}</span>
-      <h3>{{ selected.label }}</h3>
-      <p v-if="selected.sublabel">{{ selected.sublabel }}</p>
-      <p v-if="selected.details">{{ selected.details }}</p>
-      <dl v-if="selected.metadata">
-        <div v-for="(value, key) in selected.metadata" :key="key"><dt>{{ key }}</dt><dd>{{ value }}</dd></div>
-      </dl>
+    <SemanticPassport
+      v-if="passport"
+      class="flow-passport"
+      :passport="passport"
+      :reach-dir="reachDir"
+      :copied="passportCopied"
+      @close="clearSelection"
+      @copy="copyPassportLink"
+      @focus="focusNeighbor"
+      @reach="setReach"
+    >
+      <template #actions>
+        <button
+          class="passport-ask"
+          @click="selected && emit('ask', { type: 'node', id: selected.id, label: selected.label })"
+        >追问</button>
+      </template>
+    </SemanticPassport>
+    <div v-if="selected && (selected.details || selected.artifactRefs?.length || selected.relatedBlockIds?.length)" class="flow-extra">
+      <p v-if="selected.details" class="flow-extra-details">{{ selected.details }}</p>
       <div v-if="selected.relatedBlockIds?.length" class="inspector-links">
         <strong>Related blocks</strong>
         <a v-for="id in selected.relatedBlockIds" :key="id" :href="`#block-${id}`">{{ id }}</a>
@@ -459,11 +508,7 @@ watch([hoveredId, searchTerm, hiddenKinds], applyHighlight)
           <a v-else :href="artifactUrl(entry.id)" target="_blank">{{ entry.id }} ↗</a>
         </template>
       </div>
-      <button
-        class="ask-button"
-        @click="emit('ask', { type: 'node', id: selected.id, label: selected.label })"
-      >Ask about this</button>
-    </aside>
+    </div>
   </div>
 </template>
 
@@ -557,7 +602,25 @@ watch([hoveredId, searchTerm, hiddenKinds], applyHighlight)
   margin: 0; padding: 10px 14px; border: 1px solid var(--line-strong); border-radius: var(--r-md);
   background: var(--panel); color: var(--ink-strong); font: 500 11px/1.4 var(--font-mono);
 }
+
+/* Semantic passport overlays the top-left of the canvas (archify-style). */
+.flow-passport { position: absolute; z-index: 12; top: 10px; left: 10px; }
+.passport-ask {
+  padding: 2px 10px; border: 1px solid var(--frontend); border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--frontend) 10%, var(--panel)); color: var(--frontend);
+  font: 600 10px/1.6 var(--font-mono); cursor: pointer;
+}
+/* Node extras (details / artifacts / related) dock bottom-left, below the passport. */
+.flow-extra {
+  position: absolute; z-index: 11; bottom: 10px; left: 10px;
+  width: min(320px, calc(100% - 24px)); max-height: 46%; overflow: auto;
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--panel) 96%, transparent);
+}
+.flow-extra-details { margin: 0; color: var(--ink); font: 400 11.5px/1.5 var(--font-sans); }
 </style>
+
 
 
 
