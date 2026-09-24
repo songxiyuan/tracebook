@@ -61,6 +61,19 @@ const reachSet = computed(() => {
 })
 const passportCopied = ref(false)
 
+// Guided views ("演示") from the archify diagram meta; absent for basic flows.
+const views = computed(() => (props.block.variant !== 'basic' && props.block.diagram?.meta?.views) ? props.block.diagram.meta.views : [])
+const presentIndex = ref(-1)
+const currentView = computed(() => (presentIndex.value >= 0 ? views.value[presentIndex.value] : undefined))
+const presentFocus = computed(() => {
+  const view = currentView.value
+  if (!view) return undefined
+  const ids = new Set(graphNodes.value.map((node) => node.id))
+  return new Set(view.focus.filter((id) => ids.has(id)))
+})
+/** The reachability lens and presentation focus share the dim/emphasis machinery. */
+const activeFocus = computed(() => presentFocus.value ?? reachSet.value)
+
 // __REST__
 
 /** Node refs resolved against the case's artifacts (basic-variant nodes only carry refs). */
@@ -304,7 +317,7 @@ function applyHighlight() {
   const term = searchTerm.value.trim().toLowerCase()
   const hidden = hiddenKinds.value
   const near = hover ? neighbourIds(hover) : undefined
-  const reach = reachSet.value
+  const reach = activeFocus.value
   const kindById = new Map(graph.value.nodes.map((node) => [node.id, node.kind]))
   const labelById = new Map(graph.value.nodes.map((node) => [node.id, node.label.toLowerCase()]))
   const hiddenIds = new Set<string>()
@@ -405,6 +418,17 @@ async function exportPng() {
   const { svg, width, height } = buildExportSvg()
   downloadBlob(`${exportName()}.png`, await svgToPng(svg, width, height, 2))
 }
+
+/** Step through the diagram's guided views, framing and focusing each chapter. */
+function goView() {
+  const focus = presentFocus.value
+  if (focus && focus.size) void fitView({ nodes: [...focus], padding: 0.4, maxZoom: 1.6, duration: 320 })
+  applyHighlight()
+}
+function startPresent() { selectedId.value = undefined; reachDir.value = null; presentIndex.value = 0; void nextTick().then(goView) }
+function exitPresent() { presentIndex.value = -1; void nextTick().then(() => { applyHighlight(); void runFit() }) }
+function nextView() { if (presentIndex.value < views.value.length - 1) { presentIndex.value += 1; goView() } }
+function prevView() { if (presentIndex.value > 0) { presentIndex.value -= 1; goView() } }
 function restoreSelection() {
   const remembered = rememberedNodeFor(props.block.id)
   selectedId.value = remembered && nodeById.value.has(remembered) ? remembered : undefined
@@ -418,7 +442,7 @@ watch(() => props.block, async () => {
   await layout()
 }, { deep: true })
 watch(selectedId, () => { failedImages.value = [] })
-watch([hoveredId, searchTerm, hiddenKinds, reachDir], applyHighlight)
+watch([hoveredId, searchTerm, hiddenKinds, reachDir, presentIndex], applyHighlight)
 </script>
 
 <template>
@@ -442,9 +466,21 @@ watch([hoveredId, searchTerm, hiddenKinds, reachDir], applyHighlight)
       <span class="tb-sep" aria-hidden="true"></span>
       <button title="导出 SVG" @click="exportSvg">SVG</button>
       <button title="导出 PNG" @click="exportPng">PNG</button>
+      <button v-if="views.length" title="按引导视图逐步演示" @click="startPresent">演示</button>
       <label class="tb-search" title="Highlight nodes whose label matches">
         <input v-model="searchTerm" type="search" placeholder="Find node" aria-label="Find node by label" />
       </label>
+    </div>
+
+    <div v-if="currentView" class="flow-present" role="status">
+      <button class="present-nav" :disabled="presentIndex <= 0" title="上一步" @click="prevView">‹</button>
+      <div class="present-body">
+        <strong>{{ currentView.label }}</strong>
+        <small v-if="currentView.note">{{ currentView.note }}</small>
+      </div>
+      <span class="present-count">{{ presentIndex + 1 }}/{{ views.length }}</span>
+      <button class="present-nav" :disabled="presentIndex >= views.length - 1" title="下一步" @click="nextView">›</button>
+      <button class="present-exit" title="退出演示" @click="exitPresent">×</button>
     </div>
 
     <div v-if="overviewMode" class="flow-overview" role="status">
@@ -665,6 +701,25 @@ watch([hoveredId, searchTerm, hiddenKinds, reachDir], applyHighlight)
   background: color-mix(in srgb, var(--panel) 96%, transparent);
 }
 .flow-extra-details { margin: 0; color: var(--ink); font: 400 11.5px/1.5 var(--font-sans); }
+
+/* Guided-view presentation bar. */
+.flow-present {
+  position: absolute; z-index: 13; top: 46px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px; max-width: calc(100% - 40px);
+  padding: 5px 8px 5px 6px; border: 1px solid var(--frontend); border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--panel) 96%, transparent);
+  box-shadow: 0 10px 28px rgba(2, 6, 23, .16);
+}
+.flow-present .present-body { display: flex; flex-direction: column; min-width: 0; }
+.flow-present .present-body strong { font: 600 11.5px/1.3 var(--font-sans); color: var(--ink-strong); }
+.flow-present .present-body small { color: var(--muted); font: 500 9.5px/1.3 var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+.flow-present .present-count { color: var(--muted); font: 600 10px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
+.present-nav, .present-exit {
+  width: 22px; height: 22px; border: 1px solid var(--line); border-radius: var(--r-pill);
+  background: var(--panel-2); color: var(--frontend); font: 600 12px/1 var(--font-mono); cursor: pointer;
+}
+.present-nav:disabled { opacity: .4; cursor: default; }
+.present-exit { color: var(--muted); }
 </style>
 
 

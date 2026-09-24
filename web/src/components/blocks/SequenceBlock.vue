@@ -172,9 +172,25 @@ function askSelected() {
   const participant = model.value.participants.find((candidate) => candidate.id === selectedId.value)
   if (participant) emit('ask', { type: 'node', id: participant.id, label: participant.label })
 }
-function partDim(id: string) { return !!reachSet.value && !reachSet.value.has(id) }
+function partDim(id: string) { return !!activeFocus.value && !activeFocus.value.has(id) }
 function partSelected(id: string) { return selectedId.value === id }
-function msgDim(message: LaidMessage) { return !!reachSet.value && !(reachSet.value.has(message.from) && reachSet.value.has(message.to)) }
+function msgDim(message: LaidMessage) { return !!activeFocus.value && !(activeFocus.value.has(message.from) && activeFocus.value.has(message.to)) }
+
+// Guided views ("演示"): archify meta.views; dims everything outside the chapter.
+const views = computed(() => (props.block.variant === 'archify' && props.block.diagram?.meta?.views) ? props.block.diagram.meta.views : [])
+const presentIndex = ref(-1)
+const currentView = computed(() => (presentIndex.value >= 0 ? views.value[presentIndex.value] : undefined))
+const presentFocus = computed(() => {
+  const view = currentView.value
+  if (!view) return undefined
+  const ids = new Set(graphNodes.value.map((node) => node.id))
+  return new Set(view.focus.filter((id) => ids.has(id)))
+})
+const activeFocus = computed(() => presentFocus.value ?? reachSet.value)
+function startPresent() { selectedId.value = undefined; reachDir.value = null; presentIndex.value = 0 }
+function exitPresent() { presentIndex.value = -1 }
+function nextView() { if (presentIndex.value < views.value.length - 1) presentIndex.value += 1 }
+function prevView() { if (presentIndex.value > 0) presentIndex.value -= 1 }
 
 // --- zoom (scale the rendered SVG box so the scroll area grows with it) ------
 const zoom = ref(1)
@@ -210,6 +226,17 @@ async function exportPng() {
         <span class="seq-sep" aria-hidden="true" />
         <button title="导出 SVG" @click="exportSvg">SVG</button>
         <button title="导出 PNG" @click="exportPng">PNG</button>
+        <button v-if="views.length" title="按引导视图逐步演示" @click="startPresent">演示</button>
+      </div>
+      <div v-if="currentView" class="seq-present" role="status">
+        <button class="present-nav" :disabled="presentIndex <= 0" title="上一步" @click="prevView">‹</button>
+        <div class="present-body">
+          <strong>{{ currentView.label }}</strong>
+          <small v-if="currentView.note">{{ currentView.note }}</small>
+        </div>
+        <span class="present-count">{{ presentIndex + 1 }}/{{ views.length }}</span>
+        <button class="present-nav" :disabled="presentIndex >= views.length - 1" title="下一步" @click="nextView">›</button>
+        <button class="present-exit" title="退出演示" @click="exitPresent">×</button>
       </div>
       <div class="seq-scroll">
         <svg
@@ -336,6 +363,21 @@ async function exportPng() {
 .seq-toolbar button:hover { border-color: var(--frontend); color: var(--frontend); }
 .seq-zoom { min-width: 40px; color: var(--muted); font: 500 11px/1 var(--font-mono); font-variant-numeric: tabular-nums; text-align: center; }
 .seq-sep { width: 1px; align-self: stretch; margin: 0 4px; background: var(--line); }
+.seq-present {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 8px; border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--frontend) 6%, var(--panel));
+}
+.seq-present .present-body { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.seq-present .present-body strong { font: 600 11.5px/1.3 var(--font-sans); color: var(--ink-strong); }
+.seq-present .present-body small { color: var(--muted); font: 500 9.5px/1.3 var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.seq-present .present-count { color: var(--muted); font: 600 10px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
+.seq-present .present-nav, .seq-present .present-exit {
+  width: 22px; height: 22px; border: 1px solid var(--line); border-radius: var(--r-pill);
+  background: var(--panel-2); color: var(--frontend); font: 600 12px/1 var(--font-mono); cursor: pointer;
+}
+.seq-present .present-nav:disabled { opacity: .4; cursor: default; }
+.seq-present .present-exit { color: var(--muted); }
 .seq-scroll { overflow: auto; padding: 4px; }
 .seq-svg { display: block; font-family: var(--font-sans); }
 .seq-empty { margin: 0; padding: 16px; color: var(--muted); font-size: 13px; }
