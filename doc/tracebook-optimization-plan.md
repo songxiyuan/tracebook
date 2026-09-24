@@ -338,3 +338,13 @@ npm pack --dry-run      # 无 node_modules 时报 vite: command not found
   - Flow **双击折叠子树 / ELK 泳道 wrapping**：本轮先补了键盘可达性，交互与布局增强待后续。
   - 跨进程实时可见（P0-1 剩余部分）：受限于 storage-domain 缺 reload 原语。
 
+## 8. 实施进度补充（2026-09-25，第二轮）
+
+时序图彻底按 archify 迁移，并为全部流程图/时序图补齐 archify 查看器交互（spec：`.comate/specs/archify-sequence-viewer/`）。
+
+- **时序图 archify 化** — `sequence` block 增 `variant: basic|archify`，archify 变体内嵌 archify sequence 文档（`src/core/archify.ts` 的 `sequenceDiagramSchema`，完全复用其 schema）；`SequenceBlock.vue` 重写为 archify 风格 SVG（类型着色头/生命线/激活条/variant 箭头/note/自消息环）。
+- **语义护照** — `web/src/diagram/{graph-analysis,SemanticPassport}`：点击节点显示身份、出入摘要、上下游可达（BFS）、邻接边、复制链接、追问；可达透镜压暗无关元素。flow 与 sequence 共用。
+- **缩放 / 演示 / 导出** — flow 复用 Vue Flow 缩放并新增"聚焦到节点"；sequence 加 SVG 缩放；演示读取 `diagram.meta.views` 逐章聚焦；导出 SVG/PNG（sequence 内联序列化，flow 由 `flow-to-svg.ts` 重绘）。
+
+验证全绿（typecheck/build/vitest 75 passed），分 6 次提交便于回退。
+

@@ -645,7 +645,16 @@ Flow Block 通过 `variant` 字段支持多种图，默认 `basic`（上面的 n
 }
 ```
 
-Sequence 图不走 Flow Block，仍由独立的 `sequence` Block 承载（复用既有实现，仅做视觉轻量对齐）。
+Sequence 图不走 Flow Block，仍由独立的 `sequence` Block 承载。它与 Flow 一样支持 `variant`：`basic` 为 Tracebook 原生的 participants/messages（sync/async/stream）；`archify` 则内嵌一份 archify sequence 文档（`diagram`，`diagram_type: "sequence"`），**完全复用 archify 的 sequence schema**（participants{type,sublabel}、messages{y,variant,note}、activations、segments）。渲染为 archify 风格的 SVG：按 `type` 着色的参与者头、虚线生命线、激活条、按 `variant`（default/emphasis/security/dashed/return）分样式的消息箭头。`y` 仅用于消息排序（不做像素定位），几何由组件自行布局。
+
+### 共享的图交互（语义护照 / 缩放 / 演示 / 导出）
+
+Flow 与 Sequence 共享一套 archify 风格的查看器交互（`web/src/diagram/`）：
+
+- **语义护照（SemanticPassport）**：点击节点/参与者弹出面板，显示身份（label/kind/id/sublabel）、出/入向摘要、**上游/下游可达数**（`graph-analysis.ts` 的 BFS）、邻接边列表（可点击跳转）、复制链接、追问。可达性透镜会将非可达节点/边压暗。
+- **缩放**：Flow 复用 Vue Flow 的缩放/平移与"聚焦到节点"；Sequence 用 SVG 盒子缩放 + 滚动。
+- **演示（导出前的引导视图）**：读取 `diagram.meta.views`（archify guided views：`{id,label,focus[],note}`），逐章聚焦 focus 节点集并压暗其余，带上一步/下一步。
+- **导出**：Sequence 内联样式后序列化真实 SVG；Flow 由 ELK 几何重绘为独立 SVG（`flow-to-svg.ts`）。二者均可导出 SVG 或经 canvas 栅格化为 PNG（`diagram-export.ts`）。
 
 ### schema 复用与几何的边界
 
