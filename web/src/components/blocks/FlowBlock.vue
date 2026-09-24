@@ -351,7 +351,7 @@ watch([hoveredId, searchTerm, hiddenKinds], applyHighlight)
       <span class="tb-sep" aria-hidden="true"></span>
       <button :class="{ active: showMinimap }" title="Show or hide the minimap" @click="showMinimap = !showMinimap">Map</button>
       <label class="tb-search" title="Highlight nodes whose label matches">
-        <input v-model="searchTerm" type="search" placeholder="Find node" />
+        <input v-model="searchTerm" type="search" placeholder="Find node" aria-label="Find node by label" />
       </label>
     </div>
 
@@ -381,8 +381,17 @@ watch([hoveredId, searchTerm, hiddenKinds], applyHighlight)
             <span class="flow-group-label">{{ data.label }}</span>
           </div>
         </template>
-        <template #node-default="{ data }">
-          <div class="flow-node" :title="data.label">
+        <template #node-default="{ id, data }">
+          <div
+            class="flow-node"
+            :title="data.label"
+            tabindex="0"
+            role="button"
+            @keydown.enter.prevent="selectNode({ node: { id } })"
+            @keydown.space.prevent="selectNode({ node: { id } })"
+            @focus="hoveredId = id"
+            @blur="hoveredId = undefined"
+          >
             <strong class="node-label">{{ data.label }}</strong>
             <small v-if="data.sublabel" class="node-sublabel">{{ data.sublabel }}</small>
             <small v-else-if="data.kind" class="node-kind">{{ data.kind }}</small>

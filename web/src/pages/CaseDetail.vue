@@ -320,6 +320,26 @@ function exportMarkdown() {
 }
 function printCase() { window.print() }
 
+/**
+ * Keep Tab focus inside the Ask dialog while it is open, so a keyboard user
+ * cannot tab out into the page behind the modal (the dialog already grabs
+ * initial focus and closes on Esc).
+ */
+function trapFocus(event: KeyboardEvent) {
+  if (event.key !== 'Tab') return
+  const root = askDialog.value
+  if (!root) return
+  const focusable = Array.from(
+    root.querySelectorAll<HTMLElement>('button, [href], input, textarea, select, [tabindex]:not([tabindex="-1"])'),
+  ).filter((el) => !el.hasAttribute('disabled') && el.offsetParent !== null)
+  if (!focusable.length) return
+  const first = focusable[0]!
+  const last = focusable[focusable.length - 1]!
+  const active = globalThis.document.activeElement
+  if (event.shiftKey && active === first) { event.preventDefault(); last.focus() }
+  else if (!event.shiftKey && active === last) { event.preventDefault(); first.focus() }
+}
+
 watch(caseId, () => {
   clearFlowSelection()
   void load()
@@ -387,7 +407,7 @@ onBeforeUnmount(() => {
           <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5" />
           <path d="M10.6 10.6 14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
         </svg>
-        <input v-model="blockQuery" type="search" placeholder="Search blocks" />
+        <input v-model="blockQuery" type="search" placeholder="Search blocks" aria-label="Search blocks" />
       </label>
       <p class="outline-label">CONTENTS</p>
       <a
@@ -480,6 +500,7 @@ onBeforeUnmount(() => {
         aria-modal="true"
         aria-labelledby="ask-dialog-title"
         tabindex="-1"
+        @keydown="trapFocus"
       >
         <header>
           <span class="evidence-kind">{{ askTarget.type }}</span>
