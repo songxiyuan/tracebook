@@ -175,12 +175,19 @@ function compactBlock(block: Block, maxLength = 900): string {
       }).join('; ')
       break
     case 'sequence': {
+      if (block.variant === 'archify' && block.diagram) {
+        const labels = diagramNodeLabels(block.diagram)
+        content = diagramEdgeEndpoints(block.diagram).map((edge) =>
+          `${labels.get(edge.from) ?? edge.from} -> ${labels.get(edge.to) ?? edge.to}${edge.label ? `: ${edge.label}` : ''}`,
+        ).join('; ')
+        break
+      }
       // A stream is an open push, so it reads with a dashed arrow; sync/async
       // share the solid arrow and let the parenthesised kind tell them apart.
       // timingSource stays visible for the same evidence-first reason as `api`:
       // an inferred duration must never be mistaken for a measured one.
-      const labels = new Map(block.participants.map((participant) => [participant.id, participant.label]))
-      content = block.messages.map((message) => {
+      const labels = new Map((block.participants ?? []).map((participant) => [participant.id, participant.label]))
+      content = (block.messages ?? []).map((message) => {
         const arrow = message.kind === 'stream' ? '-->' : '->'
         const from = labels.get(message.from) ?? message.from
         const to = labels.get(message.to) ?? message.to
@@ -288,7 +295,7 @@ function referenceWarnings(blocks: Block[], artifacts: Artifact[]): string[] {
         }
         break
       case 'sequence':
-        for (const message of block.messages) {
+        for (const message of block.messages ?? []) {
           for (const ref of message.artifactRefs ?? []) missingArtifact(ref, `Sequence message "${message.id}"`)
         }
         break

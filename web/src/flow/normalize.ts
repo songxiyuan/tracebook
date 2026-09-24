@@ -74,6 +74,9 @@ export function normalize(block: FlowBlock): NormGraph {
     case 'architecture': return normalizeArchitecture(block.diagram)
     case 'dataflow': return normalizeDataflow(block.diagram)
     case 'lifecycle': return normalizeLifecycle(block.diagram)
+    // A flow block never carries a sequence diagram (its variant enum excludes
+    // it), but the shared diagram union includes one, so keep the switch total.
+    default: return { nodes: [], edges: [], groups: [], hasRanks: false }
   }
 }
 

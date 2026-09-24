@@ -1,277 +1,277 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { Artifact, SequenceBlock } from '../../../../src/core/model'
-import { artifactUrl } from '../../api'
 
 const props = defineProps<{ block: SequenceBlock; artifacts: Artifact[] }>()
+const emit = defineEmits<{ ask: [selection: { type: 'node'; id: string; label?: string }] }>()
 
-// Layout constants. A sequence reads top-to-bottom, so the height grows with
-// the message count while the width grows with the participant count.
-const MARGIN_X = 24
-const COL_WIDTH = 176
-const HEADER_H = 46
-const HEADER_GAP = 30
-const ROW_H = 62
-const BOTTOM_PAD = 24
-const SELF_LOOP_W = 46
-const SELF_LOOP_H = 22
+type Variant = 'default' | 'emphasis' | 'security' | 'dashed' | 'return'
+interface Participant { id: string; label: string; kind?: string; sublabel?: string }
+interface Message { id: string; from: string; to: string; label: string; variant: Variant; note?: string; open: boolean }
+interface Activation { participant: string; fromRow: number; toRow: number }
+interface Model { participants: Participant[]; messages: Message[]; activations: Activation[] }
 
-interface LaidParticipant {
-  id: string
-  label: string
-  kind?: string
-  x: number
-}
-
-interface LaidMessage {
-  id: string
-  label: string
-  kind: 'sync' | 'async' | 'stream'
-  x1: number
-  x2: number
-  y: number
-  labelX: number
-  self: boolean
-  dashed: boolean
-  markerId: string
-  meta: string
-  href?: string
-}
-
-/** Centre of each participant column; the lifeline and every arrow endpoint hang off it. */
-const participants = computed<LaidParticipant[]>(() =>
-  props.block.participants.map((participant, index) => ({
+/**
+ * Both sequence variants flatten to one row-indexed model. The archify variant
+ * carries pixel `y`s (used only to order messages here — ELK-free, we relayout
+ * with our own row pitch) and optional activation bars; the basic variant maps
+ * its sync/async/stream kinds onto the archify variant vocabulary so a single
+ * renderer draws both.
+ */
+const model = computed<Model>(() => {
+  const block = props.block
+  if (block.variant === 'archify' && block.diagram) {
+    const diagram = block.diagram
+    const participants = diagram.participants.map((participant) => ({
+      id: participant.id,
+      label: participant.label,
+      kind: participant.type,
+      sublabel: typeof participant.sublabel === 'string' ? participant.sublabel : undefined,
+    }))
+    const ordered = diagram.messages
+      .map((message, index) => ({ message, index }))
+      .sort((a, b) => (a.message.y - b.message.y) || (a.index - b.index))
+    const sortedY = ordered.map((entry) => entry.message.y)
+    const rowForY = (y: number) => {
+      let row = 0
+      for (const value of sortedY) { if (value <= y) row += 1; else break }
+      return Math.max(0, row - 1)
+    }
+    const messages: Message[] = ordered.map((entry, row) => {
+      const variant = (entry.message.variant ?? 'default') as Variant
+      return {
+        id: entry.message.id ?? `m${row}`,
+        from: entry.message.from,
+        to: entry.message.to,
+        label: entry.message.label,
+        variant,
+        note: typeof entry.message.note === 'string' ? entry.message.note : undefined,
+        open: variant === 'return',
+      }
+    })
+    const activations: Activation[] = (diagram.activations ?? []).map((activation) => ({
+      participant: activation.participant,
+      fromRow: rowForY(activation.from),
+      toRow: rowForY(activation.to),
+    }))
+    return { participants, messages, activations }
+  }
+  const participants = (block.participants ?? []).map((participant) => ({
     id: participant.id,
     label: participant.label,
     kind: participant.kind,
-    x: MARGIN_X + COL_WIDTH * index + COL_WIDTH / 2,
-  })),
-)
-
-const participantX = computed(() => new Map(participants.value.map((participant) => [participant.id, participant.x])))
-
-/** A message's small meta line: status / duration / provenance, only what is present. */
-function messageMeta(message: SequenceBlock['messages'][number]): string {
-  return [
-    message.status !== undefined ? String(message.status) : undefined,
-    message.durationMs !== undefined ? `${message.durationMs}ms` : undefined,
-    message.timingSource,
-  ].filter((part): part is string => part !== undefined).join(' · ')
-}
-
-const messages = computed<LaidMessage[]>(() =>
-  props.block.messages.map((message, index) => {
-    // A message can only reference a declared participant (schema-enforced), so
-    // the fallback to the first column is defensive, never the normal path.
-    const fallback = participants.value[0]?.x ?? MARGIN_X + COL_WIDTH / 2
-    const x1 = participantX.value.get(message.from) ?? fallback
-    const x2 = participantX.value.get(message.to) ?? fallback
-    const self = message.from === message.to
-    const y = HEADER_H + HEADER_GAP + ROW_H * index + ROW_H / 2
-    // Only a stored artifact ref makes a message a link; the first ref is the target.
-    const ref = message.artifactRefs?.[0]
+  }))
+  const messages: Message[] = (block.messages ?? []).map((message, index) => {
+    const variant: Variant = message.kind === 'stream' ? 'return' : message.kind === 'async' ? 'dashed' : 'default'
+    const meta = [
+      message.status !== undefined ? String(message.status) : undefined,
+      message.durationMs !== undefined ? `${message.durationMs}ms` : undefined,
+      message.timingSource,
+    ].filter((part): part is string => part !== undefined)
     return {
-      id: message.id,
+      id: message.id ?? `m${index}`,
+      from: message.from,
+      to: message.to,
       label: message.label,
-      kind: message.kind,
-      x1,
-      x2,
-      y,
-      labelX: self ? x1 + SELF_LOOP_W / 2 : (x1 + x2) / 2,
-      self,
-      // A synchronous call is a solid line; async and stream (both non-blocking
-      // pushes) read as dashed — the same convention the flow diagrams use for
-      // async edges, so the two views stay visually consistent.
-      dashed: message.kind !== 'sync',
-      // sync is a closed arrowhead; async and stream use the open one.
-      markerId: message.kind === 'sync' ? 'seq-arrow-solid' : 'seq-arrow-open',
-      meta: messageMeta(message),
-      href: ref ? artifactUrl(ref) : undefined,
+      variant,
+      note: message.note ?? (meta.length ? meta.join(' · ') : undefined),
+      open: message.kind !== 'sync',
     }
-  }),
-)
+  })
+  return { participants, messages, activations: [] }
+})
 
-/** A self-message loops out and back on the same lifeline; other messages are a straight arrow. */
+// __SEQ_LAYOUT__
+
+const MARGIN_X = 34
+const HEAD_W = 150
+const HEAD_H = 54
+const HEAD_TOP = 14
+const LIFELINE_TOP = 76
+const ROW_TOP = 112
+const ROW_H = 58
+const COL_W = 196
+const SELF_W = 52
+const SELF_H = 24
+
+const participants = computed(() => model.value.participants)
+const rows = computed(() => model.value.messages.length)
+
+function participantCx(index: number): number {
+  return MARGIN_X + HEAD_W / 2 + index * COL_W
+}
+const participantX = computed(() => new Map(participants.value.map((participant, index) => [participant.id, participantCx(index)])))
+
+const width = computed(() => MARGIN_X * 2 + HEAD_W + Math.max(0, participants.value.length - 1) * COL_W)
+const lifelineBottom = computed(() => ROW_TOP + Math.max(0, rows.value - 1) * ROW_H + 34)
+const height = computed(() => lifelineBottom.value + 18)
+
+interface LaidMessage extends Message { x1: number; x2: number; y: number; labelX: number; self: boolean }
+const laidMessages = computed<LaidMessage[]>(() => {
+  const xById = participantX.value
+  const fallback = participantCx(0)
+  return model.value.messages.map((message, index) => {
+    const x1 = xById.get(message.from) ?? fallback
+    const x2 = xById.get(message.to) ?? fallback
+    const self = message.from === message.to
+    const y = ROW_TOP + index * ROW_H
+    return { ...message, x1, x2, y, self, labelX: self ? x1 + SELF_W / 2 : (x1 + x2) / 2 }
+  })
+})
+
+interface LaidActivation { x: number; y: number; height: number; kind?: string }
+const laidActivations = computed<LaidActivation[]>(() => {
+  const xById = participantX.value
+  const kindById = new Map(participants.value.map((participant) => [participant.id, participant.kind]))
+  return model.value.activations
+    .map((activation): LaidActivation | undefined => {
+      const cx = xById.get(activation.participant)
+      if (cx === undefined) return undefined
+      const top = ROW_TOP + activation.fromRow * ROW_H
+      const bottom = ROW_TOP + activation.toRow * ROW_H
+      return { x: cx - 5, y: top, height: Math.max(ROW_H / 2, bottom - top), kind: kindById.get(activation.participant) }
+    })
+    .filter((value): value is LaidActivation => value !== undefined)
+})
+
 function loopPath(message: LaidMessage): string {
-  return `M ${message.x1} ${message.y - SELF_LOOP_H / 2}`
-    + ` h ${SELF_LOOP_W} v ${SELF_LOOP_H} h ${-SELF_LOOP_W}`
+  return `M ${message.x1} ${message.y - SELF_H / 2} h ${SELF_W} v ${SELF_H} h ${-SELF_W}`
 }
 
-const width = computed(() => MARGIN_X * 2 + COL_WIDTH * Math.max(participants.value.length, 1))
-const lifelineBottom = computed(() => HEADER_H + HEADER_GAP + ROW_H * props.block.messages.length + BOTTOM_PAD)
-const height = computed(() => lifelineBottom.value)
+const empty = computed(() => !participants.value.length || !rows.value)
+const title = computed(() => (props.block.variant === 'archify' ? props.block.diagram?.meta?.title : undefined))
 
-/** Resolve a participant's artifact-friendly display name only for its header hint. */
-function participantTitle(participant: LaidParticipant): string {
-  return participant.kind ? `${participant.label} · ${participant.kind}` : participant.label
+function askParticipant(participant: Participant) {
+  emit('ask', { type: 'node', id: participant.id, label: participant.label })
 }
 </script>
 
 <template>
   <div class="seq-shell">
-    <p v-if="!participants.length || !messages.length" class="seq-empty">
-      This sequence has no messages to display yet.
-    </p>
+    <p v-if="empty" class="seq-empty">This sequence has no messages to display yet.</p>
     <div v-else class="seq-scroll">
-      <svg class="seq-svg" :width="width" :height="height" :viewBox="`0 0 ${width} ${height}`" role="img">
+      <svg class="seq-svg" :width="width" :height="height" :viewBox="`0 0 ${width} ${height}`" role="img" :aria-label="title || 'Sequence diagram'">
         <defs>
-          <!-- A sync call ends in a closed head; async and stream use the open one. -->
-          <marker id="seq-arrow-solid" markerWidth="12" markerHeight="12" refX="9" refY="5" orient="auto">
-            <path d="M0,0 L10,5 L0,10 z" class="seq-head-solid" />
+          <marker id="seq-solid" markerWidth="12" markerHeight="12" refX="8.5" refY="5" orient="auto">
+            <path d="M0,0 L10,5 L0,10 z" class="seq-marker-solid" />
           </marker>
-          <marker id="seq-arrow-open" markerWidth="12" markerHeight="12" refX="9" refY="5" orient="auto">
-            <path d="M0,0 L10,5 L0,10" class="seq-head-open" />
+          <marker id="seq-open" markerWidth="12" markerHeight="12" refX="8.5" refY="5" orient="auto">
+            <path d="M0,0 L10,5 L0,10" class="seq-marker-open" />
           </marker>
         </defs>
 
-        <!-- Participants: a header box per column with a lifeline dropping from it. -->
-        <g v-for="participant in participants" :key="participant.id" class="seq-participant">
-          <line
-            class="seq-lifeline"
-            :x1="participant.x"
-            :y1="HEADER_H"
-            :x2="participant.x"
-            :y2="lifelineBottom"
-          />
-          <rect
-            class="seq-head-box"
-            :x="participant.x - (COL_WIDTH - 32) / 2"
-            :y="6"
-            :width="COL_WIDTH - 32"
-            :height="34"
-            rx="6"
-          />
-          <text class="seq-head-label" :x="participant.x" :y="24" text-anchor="middle">
-            <title>{{ participantTitle(participant) }}</title>{{ participant.label }}
-          </text>
-          <text v-if="participant.kind" class="seq-head-kind" :x="participant.x" :y="37" text-anchor="middle">
-            {{ participant.kind }}
-          </text>
+        <!-- Participants: colored head + lifeline dropping from it. -->
+        <g v-for="(participant, index) in participants" :key="participant.id" class="seq-part" :class="participant.kind ? `kind-${participant.kind}` : ''">
+          <line class="seq-lifeline" :x1="participantCx(index)" :y1="LIFELINE_TOP" :x2="participantCx(index)" :y2="lifelineBottom" />
         </g>
 
-        <!-- Messages: ordered top-to-bottom, each a link when it carries an artifact ref. -->
-        <component
-          :is="message.href ? 'a' : 'g'"
-          v-for="message in messages"
-          :key="message.id"
-          class="seq-message"
-          :class="{ 'is-link': message.href, [`kind-${message.kind}`]: true }"
-          :href="message.href"
-          :target="message.href ? '_blank' : undefined"
-        >
+        <!-- Activation bars sit above the lifelines but below the arrows. -->
+        <rect
+          v-for="(activation, index) in laidActivations"
+          :key="`act-${index}`"
+          class="seq-activation"
+          :class="activation.kind ? `kind-${activation.kind}` : ''"
+          :x="activation.x"
+          :y="activation.y"
+          width="10"
+          :height="activation.height"
+          rx="3"
+        />
+
+        <!-- Messages, ordered top-to-bottom. -->
+        <g v-for="message in laidMessages" :key="message.id" class="seq-msg">
           <path
             v-if="message.self"
-            class="seq-arrow"
-            :class="{ dashed: message.dashed }"
+            class="seq-arrow-line"
+            :class="`v-${message.variant}`"
             :d="loopPath(message)"
             fill="none"
-            :marker-end="`url(#${message.markerId})`"
+            :marker-end="message.open ? 'url(#seq-open)' : 'url(#seq-solid)'"
           />
           <line
             v-else
-            class="seq-arrow"
-            :class="{ dashed: message.dashed }"
-            :x1="message.x1"
+            class="seq-arrow-line"
+            :class="`v-${message.variant}`"
+            :x1="message.x1 + (message.x2 > message.x1 ? 8 : -8)"
             :y1="message.y"
-            :x2="message.x2"
+            :x2="message.x2 + (message.x2 > message.x1 ? -8 : 8)"
             :y2="message.y"
-            :marker-end="`url(#${message.markerId})`"
+            :marker-end="message.open ? 'url(#seq-open)' : 'url(#seq-solid)'"
           />
-          <text class="seq-label" :x="message.labelX" :y="message.y - 9" text-anchor="middle">
-            {{ message.label }}<tspan v-if="message.href" class="seq-link-mark"> ↗</tspan>
+          <text class="seq-label" :x="message.labelX" :y="message.y - 9" text-anchor="middle">{{ message.label }}</text>
+          <text v-if="message.note" class="seq-note" :x="message.labelX" :y="message.y + 13" text-anchor="middle">{{ message.note }}</text>
+        </g>
+
+        <!-- Heads drawn last so their opaque mask covers any arrow that reaches the top. -->
+        <g
+          v-for="(participant, index) in participants"
+          :key="`head-${participant.id}`"
+          class="seq-head-group"
+          :class="participant.kind ? `kind-${participant.kind}` : ''"
+        >
+          <rect class="seq-head-mask" :x="participantCx(index) - HEAD_W / 2" :y="HEAD_TOP" :width="HEAD_W" :height="HEAD_H" rx="8" />
+          <rect
+            class="seq-head"
+            :x="participantCx(index) - HEAD_W / 2"
+            :y="HEAD_TOP"
+            :width="HEAD_W"
+            :height="HEAD_H"
+            rx="8"
+            tabindex="0"
+            role="button"
+            :aria-label="participant.label"
+            @click="askParticipant(participant)"
+            @keydown.enter.prevent="askParticipant(participant)"
+            @keydown.space.prevent="askParticipant(participant)"
+          />
+          <text class="seq-head-label" :x="participantCx(index)" :y="HEAD_TOP + (participant.sublabel ? 24 : 31)" text-anchor="middle">
+            {{ participant.label }}
           </text>
-          <text v-if="message.meta" class="seq-meta" :x="message.labelX" :y="message.y + 14" text-anchor="middle">
-            {{ message.meta }}
+          <text v-if="participant.sublabel" class="seq-head-sub" :x="participantCx(index)" :y="HEAD_TOP + 40" text-anchor="middle">
+            {{ participant.sublabel }}
           </text>
-        </component>
+        </g>
       </svg>
     </div>
   </div>
 </template>
 
 <style scoped>
-.seq-shell {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-}
-.seq-scroll {
-  overflow-x: auto;
-  padding: 4px;
-}
-.seq-svg {
-  display: block;
-  font-family: ui-sans-serif, system-ui, sans-serif;
-}
-.seq-empty {
-  margin: 0;
-  padding: 16px;
-  color: var(--muted);
-  font-size: 13px;
-}
-.seq-lifeline {
-  stroke: var(--line-strong);
-  stroke-width: 1;
-  stroke-dasharray: 4 4;
-}
-.seq-head-box {
-  fill: var(--panel-2);
-  stroke: var(--line-strong);
-  stroke-width: 1;
-}
-.seq-head-label {
-  fill: var(--ink-strong);
-  font-size: 12px;
-  font-weight: 600;
-}
-.seq-head-kind {
-  fill: var(--muted);
-  font-size: 10px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-.seq-arrow {
-  stroke: var(--ink);
-  stroke-width: 1.4;
-  color: var(--ink);
-}
-.seq-arrow.dashed {
-  stroke-dasharray: 6 5;
-}
-.seq-head-solid {
-  fill: var(--ink);
-}
-.seq-head-open {
-  fill: none;
-  stroke: var(--ink);
-  stroke-width: 1.6;
-}
-.seq-label {
-  fill: var(--ink-strong);
-  font-size: 12px;
-}
-.seq-meta {
-  fill: var(--muted);
-  font-size: 10px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-.seq-message.is-link {
+.seq-shell { border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); }
+.seq-scroll { overflow-x: auto; padding: 4px; }
+.seq-svg { display: block; font-family: var(--font-sans); }
+.seq-empty { margin: 0; padding: 16px; color: var(--muted); font-size: 13px; }
+
+.seq-lifeline { stroke: var(--line-strong); stroke-width: 1; stroke-dasharray: 3 7; }
+
+.seq-head-mask { fill: var(--panel); }
+.seq-head {
+  fill: color-mix(in srgb, var(--kind, var(--external)) 12%, var(--panel));
+  stroke: var(--kind, var(--external));
+  stroke-width: 1.5;
   cursor: pointer;
 }
-.seq-message.is-link:hover .seq-arrow {
-  stroke: var(--frontend, #0e7490);
-  color: var(--frontend, #0e7490);
+.seq-head:hover { fill: color-mix(in srgb, var(--kind, var(--external)) 20%, var(--panel)); }
+.seq-head-label { fill: var(--ink-strong); font-size: 12px; font-weight: 600; }
+.seq-head-sub { fill: var(--muted); font: 500 9px var(--font-mono); letter-spacing: .02em; }
+
+.seq-activation {
+  fill: color-mix(in srgb, var(--kind, var(--external)) 22%, var(--panel));
+  stroke: var(--kind, var(--external));
+  stroke-width: 1;
 }
-.seq-message.is-link:hover .seq-head-solid {
-  fill: var(--frontend, #0e7490);
-}
-.seq-message.is-link:hover .seq-head-open {
-  stroke: var(--frontend, #0e7490);
-}
-.seq-message.is-link:hover .seq-label {
-  fill: var(--frontend, #0e7490);
-}
-.seq-link-mark {
-  fill: var(--frontend, #0e7490);
-  font-size: 10px;
-}
+
+.seq-arrow-line { stroke-width: 1.4; fill: none; }
+.seq-arrow-line.v-default { stroke: var(--dim); }
+.seq-arrow-line.v-emphasis { stroke: var(--backend); stroke-width: 2; }
+.seq-arrow-line.v-security { stroke: var(--security); stroke-dasharray: 5 5; }
+.seq-arrow-line.v-dashed { stroke: var(--dim); stroke-dasharray: 6 5; }
+.seq-arrow-line.v-return { stroke: var(--dim); stroke-dasharray: 3 5; }
+.seq-marker-solid { fill: context-stroke; }
+.seq-marker-open { fill: none; stroke: context-stroke; stroke-width: 1.4; }
+
+.seq-label { fill: var(--ink-strong); font-size: 11.5px; }
+.seq-note { fill: var(--muted); font: 500 9px var(--font-mono); }
 </style>
+
+

@@ -217,6 +217,52 @@ export const lifecycleDiagramSchema = z.object({
   cards: cards.optional(),
 })
 
+// --- sequence.schema.json --------------------------------------------------
+
+export const sequenceMessageVariant = z.enum(['default', 'emphasis', 'security', 'dashed', 'return'])
+
+const sequenceParticipant = z.looseObject({
+  id: archifyId,
+  type: componentType,
+  label: z.string().min(1),
+  sublabel: z.string().optional(),
+})
+
+const sequenceMessage = z.looseObject({
+  id: archifyId.optional(),
+  from: archifyId,
+  to: archifyId,
+  // Pixel y in archify; Tracebook uses it only to order the messages top-to-bottom.
+  y: z.number(),
+  label: z.string().min(1),
+  variant: sequenceMessageVariant.optional(),
+  note: z.string().optional(),
+})
+
+const sequenceActivation = z.looseObject({
+  participant: archifyId,
+  from: z.number(),
+  to: z.number(),
+  type: componentType.optional(),
+})
+
+const sequenceSegment = z.looseObject({
+  from: z.number(),
+  to: z.number(),
+  label: z.string().min(1),
+})
+
+export const sequenceDiagramSchema = z.object({
+  schema_version: z.literal(1),
+  diagram_type: z.literal('sequence'),
+  meta: baseMeta,
+  participants: z.array(sequenceParticipant).min(2),
+  messages: z.array(sequenceMessage).min(1),
+  activations: z.array(sequenceActivation).optional(),
+  segments: z.array(sequenceSegment).optional(),
+  cards: cards.optional(),
+})
+
 // --- union + helpers -------------------------------------------------------
 
 export const archifyDiagramSchema = z.discriminatedUnion('diagram_type', [
@@ -224,12 +270,14 @@ export const archifyDiagramSchema = z.discriminatedUnion('diagram_type', [
   architectureDiagramSchema,
   dataflowDiagramSchema,
   lifecycleDiagramSchema,
+  sequenceDiagramSchema,
 ])
 
 export type ArchifyDiagram = z.infer<typeof archifyDiagramSchema>
 export type ArchifyDiagramType = ArchifyDiagram['diagram_type']
+export type ArchifySequenceDiagram = z.infer<typeof sequenceDiagramSchema>
 
-/** The ids of the primary graph elements (workflow/dataflow nodes, architecture components, lifecycle states). */
+/** The ids of the primary graph elements (nodes / components / states / participants). */
 export function diagramNodeIds(diagram: ArchifyDiagram): string[] {
   switch (diagram.diagram_type) {
     case 'workflow':
@@ -239,10 +287,12 @@ export function diagramNodeIds(diagram: ArchifyDiagram): string[] {
       return diagram.components.map((component) => component.id)
     case 'lifecycle':
       return diagram.states.map((state) => state.id)
+    case 'sequence':
+      return diagram.participants.map((participant) => participant.id)
   }
 }
 
-/** Map from node/component/state id to its display label, for compact summaries. */
+/** Map from node/component/state/participant id to its display label, for compact summaries. */
 export function diagramNodeLabels(diagram: ArchifyDiagram): Map<string, string> {
   const entries: Array<[string, string]> = (() => {
     switch (diagram.diagram_type) {
@@ -253,6 +303,8 @@ export function diagramNodeLabels(diagram: ArchifyDiagram): Map<string, string> 
         return diagram.components.map((component) => [component.id, component.label] as [string, string])
       case 'lifecycle':
         return diagram.states.map((state) => [state.id, state.label] as [string, string])
+      case 'sequence':
+        return diagram.participants.map((participant) => [participant.id, participant.label] as [string, string])
     }
   })()
   return new Map(entries)
@@ -269,10 +321,12 @@ export function diagramEdgeEndpoints(diagram: ArchifyDiagram): Array<{ handle: s
       return diagram.flows.map((flow, index) => ({ handle: flow.id ?? `flow#${index}`, from: flow.from, to: flow.to, label: flow.label }))
     case 'lifecycle':
       return diagram.transitions.map((transition, index) => ({ handle: transition.id ?? `transition#${index}`, from: transition.from, to: transition.to, label: transition.label }))
+    case 'sequence':
+      return diagram.messages.map((message, index) => ({ handle: message.id ?? `message#${index}`, from: message.from, to: message.to, label: message.label }))
   }
 }
 
-/** Node references that are not edge endpoints (architecture boundary wraps, workflow mainPath), for integrity checks. */
+/** Node references that are not edge endpoints (boundary wraps, mainPath, sequence activations), for integrity checks. */
 export function diagramExtraNodeRefs(diagram: ArchifyDiagram): Array<{ ref: string; where: string }> {
   const refs: Array<{ ref: string; where: string }> = []
   if (diagram.diagram_type === 'architecture') {
@@ -282,6 +336,9 @@ export function diagramExtraNodeRefs(diagram: ArchifyDiagram): Array<{ ref: stri
   }
   if (diagram.diagram_type === 'workflow' && diagram.mainPath) {
     for (const ref of diagram.mainPath) refs.push({ ref, where: 'mainPath' })
+  }
+  if (diagram.diagram_type === 'sequence') {
+    for (const activation of diagram.activations ?? []) refs.push({ ref: activation.participant, where: 'activation' })
   }
   return refs
 }

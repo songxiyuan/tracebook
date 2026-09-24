@@ -72,7 +72,13 @@ function renderBlockBody(block: Block): string {
     case 'api':
       return block.endpoints.map((e) => `- \`${e.method} ${e.path}\`${e.summary ? ` — ${e.summary}` : ''}`).join('\n')
     case 'sequence':
-      return block.messages.map((m) => `- ${m.from} ${m.kind === 'stream' ? '⇢' : '→'} ${m.to}: ${m.label}${m.status !== undefined ? ` (${m.status})` : ''}`).join('\n')
+      if (block.variant === 'archify' && block.diagram) {
+        const labels = diagramNodeLabels(block.diagram)
+        return diagramEdgeEndpoints(block.diagram)
+          .map((edge) => `- ${labels.get(edge.from) ?? edge.from} → ${labels.get(edge.to) ?? edge.to}${edge.label ? `: ${edge.label}` : ''}`)
+          .join('\n')
+      }
+      return (block.messages ?? []).map((m) => `- ${m.from} ${m.kind === 'stream' ? '⇢' : '→'} ${m.to}: ${m.label}${m.status !== undefined ? ` (${m.status})` : ''}`).join('\n')
     case 'flow':
       return flowToMarkdown(block)
   }

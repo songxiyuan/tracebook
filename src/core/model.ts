@@ -5,6 +5,7 @@ import {
   diagramEdgeEndpoints,
   diagramExtraNodeRefs,
   diagramNodeIds,
+  sequenceDiagramSchema,
 } from './archify.js'
 
 const nonEmpty = z.string().trim().min(1)
@@ -389,30 +390,50 @@ export const sequenceMessageSchema = z.object({
  * to whom), while a request → response → async-push interaction is a sequence
  * in time, and forcing it into a graph loses the ordering that makes it
  * readable. Participants are the lifelines; messages are the ordered arrows.
+ *
+ * `variant` mirrors the flow block: `basic` is Tracebook's own participant/
+ * message shape; `archify` embeds an archify sequence diagram verbatim under
+ * `diagram` (same schema-reuse contract as the flow diagrams).
  */
 export const sequenceBlockSchema = blockBaseSchema.extend({
   type: z.literal('sequence'),
-  participants: z.array(sequenceParticipantSchema),
-  messages: z.array(sequenceMessageSchema),
+  variant: z.enum(['basic', 'archify']).default('basic'),
+  participants: z.array(sequenceParticipantSchema).optional(),
+  messages: z.array(sequenceMessageSchema).optional(),
+  diagram: sequenceDiagramSchema.optional(),
 }).superRefine((block, ctx) => {
+  if (block.variant === 'archify') {
+    if (!block.diagram) {
+      ctx.addIssue({ code: 'custom', message: 'sequence variant "archify" requires a "diagram"' })
+      return
+    }
+    validateArchifyDiagram(block.diagram, ctx)
+    return
+  }
+  const participants = block.participants
+  if (!participants) {
+    ctx.addIssue({ code: 'custom', message: 'sequence variant "basic" requires "participants"' })
+    return
+  }
+  const messages = block.messages ?? []
   // P1-1: participant and message ids are the stable handles the Viewer looks
   // up, so a duplicate would silently resolve to whichever one wins.
   const seenParticipantIds = new Set<string>()
-  for (const participant of block.participants) {
+  for (const participant of participants) {
     if (seenParticipantIds.has(participant.id)) {
       ctx.addIssue({ code: 'custom', message: `Duplicate sequence participant id ${participant.id}` })
     }
     seenParticipantIds.add(participant.id)
   }
   const seenMessageIds = new Set<string>()
-  for (const message of block.messages) {
+  for (const message of messages) {
     if (seenMessageIds.has(message.id)) {
       ctx.addIssue({ code: 'custom', message: `Duplicate sequence message id ${message.id}` })
     }
     seenMessageIds.add(message.id)
   }
-  const participantIds = new Set(block.participants.map((participant) => participant.id))
-  for (const message of block.messages) {
+  const participantIds = new Set(participants.map((participant) => participant.id))
+  for (const message of messages) {
     if (!participantIds.has(message.from)) {
       ctx.addIssue({ code: 'custom', message: `Message ${message.id} references missing from ${message.from}` })
     }
@@ -514,7 +535,7 @@ const HAND_WRITTEN_BLOCK_REFERENCE = [
   'evidence: id, title?, description?, artifactRefs?, items[{id,kind,title,summary?,artifactRef?}]',
   'gallery: id, title?, description?, artifactRefs?, items[{artifactRef,caption?}]',
   'api: id, title?, description?, artifactRefs?, endpoints[{id,method,path,summary?,responses?,timing?}]',
-  'sequence: id, title?, description?, artifactRefs?, participants[{id,label,kind?}], messages[{id,from,to,label,kind,status?,durationMs?,timingSource?,artifactRefs?,note?}]',
+  'sequence: id, title?, description?, artifactRefs?, variant? (basic|archify; default basic). basic: participants[{id,label,kind?}], messages[{id,from,to,label,kind,status?,durationMs?,timingSource?,artifactRefs?,note?}]. archify: diagram (an archify sequence diagram JSON, diagram_type "sequence")',
 ].join('\n')
 
 export const artifactSchema = z.object({

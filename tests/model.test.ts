@@ -94,8 +94,46 @@ describe('sequence block', () => {
       messages: [{ id: 'm1', from: 'page', to: 'svc', label: 'create' }],
     }))
     if (parsed.type !== 'sequence') throw new Error('expected a sequence block')
-    expect(parsed.messages[0]?.kind).toBe('sync')
+    expect(parsed.variant).toBe('basic')
+    expect(parsed.messages?.[0]?.kind).toBe('sync')
     expect(parsed.participants).toHaveLength(2)
+  })
+
+  it('accepts an embedded archify sequence diagram (variant archify)', () => {
+    const parsed = blockSchema.parse({
+      id: 'seq', type: 'sequence', variant: 'archify',
+      diagram: {
+        schema_version: 1, diagram_type: 'sequence', meta: { title: 'Upload' },
+        participants: [
+          { id: 'web', type: 'frontend', label: 'Web 客户端' },
+          { id: 'gw', type: 'backend', label: 'UFC Gateway', sublabel: '接入层' },
+        ],
+        messages: [
+          { id: 'm1', from: 'web', to: 'gw', y: 180, label: 'POST /api/upload' },
+          { id: 'm2', from: 'gw', to: 'web', y: 240, label: '200 OK', variant: 'return' },
+        ],
+        activations: [{ participant: 'gw', from: 180, to: 240 }],
+      },
+    })
+    if (parsed.type !== 'sequence') throw new Error('expected a sequence block')
+    expect(parsed.variant).toBe('archify')
+    expect(parsed.diagram?.participants).toHaveLength(2)
+  })
+
+  it('rejects an archify sequence message that points at a missing participant', () => {
+    const result = blockSchema.safeParse({
+      id: 'seq', type: 'sequence', variant: 'archify',
+      diagram: {
+        schema_version: 1, diagram_type: 'sequence', meta: { title: 'Upload' },
+        participants: [
+          { id: 'web', type: 'frontend', label: 'Web' },
+          { id: 'gw', type: 'backend', label: 'Gateway' },
+        ],
+        messages: [{ id: 'm1', from: 'web', to: 'ghost', y: 180, label: 'call' }],
+      },
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) expect(result.error.issues.some((issue) => issue.message.includes('missing to ghost'))).toBe(true)
   })
 
   it('rejects a message that references a participant that was never declared', () => {
