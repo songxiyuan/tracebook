@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import type { Artifact, SequenceBlock } from '../../../../src/core/model'
+import { buildPassport, reachable, type GEdge, type GNode } from '../../diagram/graph-analysis'
+import SemanticPassport from '../../diagram/SemanticPassport.vue'
+import { copyText } from '../../clipboard'
 
 const props = defineProps<{ block: SequenceBlock; artifacts: Artifact[] }>()
 const emit = defineEmits<{ ask: [selection: { type: 'node'; id: string; label?: string }] }>()
@@ -141,16 +144,65 @@ function loopPath(message: LaidMessage): string {
 const empty = computed(() => !participants.value.length || !rows.value)
 const title = computed(() => (props.block.variant === 'archify' ? props.block.diagram?.meta?.title : undefined))
 
-function askParticipant(participant: Participant) {
-  emit('ask', { type: 'node', id: participant.id, label: participant.label })
+// --- semantic passport + reachability lens (shared with the flow diagrams) ---
+const graphNodes = computed<GNode[]>(() => model.value.participants.map((participant) => ({
+  id: participant.id, label: participant.label, kind: participant.kind, sublabel: participant.sublabel,
+})))
+const graphEdges = computed<GEdge[]>(() => model.value.messages.map((message) => ({ source: message.from, target: message.to, label: message.label })))
+const selectedId = ref<string>()
+const passport = computed(() => (selectedId.value ? buildPassport(selectedId.value, graphNodes.value, graphEdges.value) : undefined))
+const reachDir = ref<'up' | 'down' | null>(null)
+const reachSet = computed(() => {
+  if (!reachDir.value || !selectedId.value) return undefined
+  const set = reachable(selectedId.value, graphNodes.value, graphEdges.value, reachDir.value)
+  set.add(selectedId.value)
+  return set
+})
+const copied = ref(false)
+
+function selectParticipant(participant: Participant) { selectedId.value = participant.id; reachDir.value = null }
+function clearSelection() { selectedId.value = undefined; reachDir.value = null }
+function focusNeighbor(id: string) { selectedId.value = id; reachDir.value = null }
+function setReach(dir: 'up' | 'down' | null) { reachDir.value = dir }
+async function copyLink() {
+  if (await copyText(location.href)) { copied.value = true; setTimeout(() => { copied.value = false }, 1500) }
 }
+function askSelected() {
+  const participant = model.value.participants.find((candidate) => candidate.id === selectedId.value)
+  if (participant) emit('ask', { type: 'node', id: participant.id, label: participant.label })
+}
+function partDim(id: string) { return !!reachSet.value && !reachSet.value.has(id) }
+function partSelected(id: string) { return selectedId.value === id }
+function msgDim(message: LaidMessage) { return !!reachSet.value && !(reachSet.value.has(message.from) && reachSet.value.has(message.to)) }
+
+// --- zoom (scale the rendered SVG box so the scroll area grows with it) ------
+const zoom = ref(1)
+function zoomIn() { zoom.value = Math.min(2.5, Math.round((zoom.value + 0.25) * 4) / 4) }
+function zoomOut() { zoom.value = Math.max(0.5, Math.round((zoom.value - 0.25) * 4) / 4) }
+function zoomReset() { zoom.value = 1 }
+const zoomPercent = computed(() => Math.round(zoom.value * 100))
 </script>
+
 
 <template>
   <div class="seq-shell">
     <p v-if="empty" class="seq-empty">This sequence has no messages to display yet.</p>
-    <div v-else class="seq-scroll">
-      <svg class="seq-svg" :width="width" :height="height" :viewBox="`0 0 ${width} ${height}`" role="img" :aria-label="title || 'Sequence diagram'">
+    <template v-else>
+      <div class="seq-toolbar">
+        <button title="Zoom out" @click="zoomOut">−</button>
+        <span class="seq-zoom">{{ zoomPercent }}%</span>
+        <button title="Zoom in" @click="zoomIn">+</button>
+        <button title="Reset zoom" @click="zoomReset">Fit</button>
+      </div>
+      <div class="seq-scroll">
+        <svg
+          class="seq-svg"
+          :width="width * zoom"
+          :height="height * zoom"
+          :viewBox="`0 0 ${width} ${height}`"
+          role="img"
+          :aria-label="title || 'Sequence diagram'"
+        >
         <defs>
           <marker id="seq-solid" markerWidth="12" markerHeight="12" refX="8.5" refY="5" orient="auto">
             <path d="M0,0 L10,5 L0,10 z" class="seq-marker-solid" />
@@ -179,7 +231,7 @@ function askParticipant(participant: Participant) {
         />
 
         <!-- Messages, ordered top-to-bottom. -->
-        <g v-for="message in laidMessages" :key="message.id" class="seq-msg">
+        <g v-for="message in laidMessages" :key="message.id" class="seq-msg" :class="{ 'seq-dim': msgDim(message) }">
           <path
             v-if="message.self"
             class="seq-arrow-line"
@@ -207,7 +259,7 @@ function askParticipant(participant: Participant) {
           v-for="(participant, index) in participants"
           :key="`head-${participant.id}`"
           class="seq-head-group"
-          :class="participant.kind ? `kind-${participant.kind}` : ''"
+          :class="[participant.kind ? `kind-${participant.kind}` : '', { 'seq-dim': partDim(participant.id), 'seq-sel': partSelected(participant.id) }]"
         >
           <rect class="seq-head-mask" :x="participantCx(index) - HEAD_W / 2" :y="HEAD_TOP" :width="HEAD_W" :height="HEAD_H" rx="8" />
           <rect
@@ -220,9 +272,9 @@ function askParticipant(participant: Participant) {
             tabindex="0"
             role="button"
             :aria-label="participant.label"
-            @click="askParticipant(participant)"
-            @keydown.enter.prevent="askParticipant(participant)"
-            @keydown.space.prevent="askParticipant(participant)"
+            @click="selectParticipant(participant)"
+            @keydown.enter.prevent="selectParticipant(participant)"
+            @keydown.space.prevent="selectParticipant(participant)"
           />
           <text class="seq-head-label" :x="participantCx(index)" :y="HEAD_TOP + (participant.sublabel ? 24 : 31)" text-anchor="middle">
             {{ participant.label }}
@@ -232,15 +284,53 @@ function askParticipant(participant: Participant) {
           </text>
         </g>
       </svg>
-    </div>
+      </div>
+      <SemanticPassport
+        v-if="passport"
+        class="seq-passport"
+        :passport="passport"
+        :reach-dir="reachDir"
+        :copied="copied"
+        @close="clearSelection"
+        @copy="copyLink"
+        @focus="focusNeighbor"
+        @reach="setReach"
+      >
+        <template #actions>
+          <button class="passport-ask" @click="askSelected">追问</button>
+        </template>
+      </SemanticPassport>
+    </template>
   </div>
 </template>
 
 <style scoped>
-.seq-shell { border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); }
-.seq-scroll { overflow-x: auto; padding: 4px; }
+.seq-shell { position: relative; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); }
+.seq-toolbar {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 8px; border-bottom: 1px solid var(--line);
+}
+.seq-toolbar button {
+  min-width: 24px; height: 22px; padding: 0 7px;
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--panel-2); color: var(--muted); font: 600 11px/1 var(--font-mono); cursor: pointer;
+}
+.seq-toolbar button:hover { border-color: var(--frontend); color: var(--frontend); }
+.seq-zoom { min-width: 40px; color: var(--muted); font: 500 11px/1 var(--font-mono); font-variant-numeric: tabular-nums; text-align: center; }
+.seq-scroll { overflow: auto; padding: 4px; }
 .seq-svg { display: block; font-family: var(--font-sans); }
 .seq-empty { margin: 0; padding: 16px; color: var(--muted); font-size: 13px; }
+
+.seq-passport { position: absolute; z-index: 12; top: 44px; left: 12px; }
+.passport-ask {
+  padding: 2px 10px; border: 1px solid var(--frontend); border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--frontend) 10%, var(--panel)); color: var(--frontend);
+  font: 600 10px/1.6 var(--font-mono); cursor: pointer;
+}
+
+/* Reachability lens dim/emphasis. */
+.seq-dim { opacity: .16; transition: opacity .15s; }
+.seq-sel .seq-head { stroke-width: 2.4; }
 
 .seq-lifeline { stroke: var(--line-strong); stroke-width: 1; stroke-dasharray: 3 7; }
 
