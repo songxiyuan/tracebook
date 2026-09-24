@@ -191,9 +191,9 @@ function participantTitle(participant: LaidParticipant): string {
 
 <style scoped>
 .seq-shell {
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--panel);
 }
 .seq-scroll {
   overflow-x: auto;
@@ -206,51 +206,51 @@ function participantTitle(participant: LaidParticipant): string {
 .seq-empty {
   margin: 0;
   padding: 16px;
-  color: #64748b;
+  color: var(--muted);
   font-size: 13px;
 }
 .seq-lifeline {
-  stroke: #cbd5e1;
+  stroke: var(--line-strong);
   stroke-width: 1;
   stroke-dasharray: 4 4;
 }
 .seq-head-box {
-  fill: #f8fafc;
-  stroke: #cbd5e1;
+  fill: var(--panel-2);
+  stroke: var(--line-strong);
   stroke-width: 1;
 }
 .seq-head-label {
-  fill: #0f172a;
+  fill: var(--ink-strong);
   font-size: 12px;
   font-weight: 600;
 }
 .seq-head-kind {
-  fill: #64748b;
+  fill: var(--muted);
   font-size: 10px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .seq-arrow {
-  stroke: #334155;
+  stroke: var(--ink);
   stroke-width: 1.4;
-  color: #334155;
+  color: var(--ink);
 }
 .seq-arrow.dashed {
   stroke-dasharray: 6 5;
 }
 .seq-head-solid {
-  fill: #334155;
+  fill: var(--ink);
 }
 .seq-head-open {
   fill: none;
-  stroke: #334155;
+  stroke: var(--ink);
   stroke-width: 1.6;
 }
 .seq-label {
-  fill: #0f172a;
+  fill: var(--ink-strong);
   font-size: 12px;
 }
 .seq-meta {
-  fill: #64748b;
+  fill: var(--muted);
   font-size: 10px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }

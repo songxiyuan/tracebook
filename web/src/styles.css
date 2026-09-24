@@ -48,6 +48,36 @@
   --stat-archived: var(--external);
 }
 
+/*
+ * Dark theme. theme.ts writes `data-theme="dark"` on <html>; the semantic
+ * vocabulary keeps its meaning but shifts to the 400-step tints so each signal
+ * holds contrast on a dark base. Only tokens are overridden — every component
+ * that already draws from `var(--…)` follows automatically.
+ */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --canvas: #0b1220;
+  --panel: #111a2b;
+  --panel-2: #16223a;
+  --panel-3: #1e2b44;
+  --ink: #e2e8f0;
+  --ink-strong: #f8fafc;
+  --muted: #a5b4c8;
+  --dim: #94a3b8;
+  --faint: #64748b;
+  --line: #24324a;
+  --line-strong: #3a4a63;
+
+  --frontend: #22d3ee;
+  --backend: #34d399;
+  --database: #a78bfa;
+  --cloud: #fbbf24;
+  --security: #fb7185;
+  --messagebus: #fb923c;
+  --external: #94a3b8;
+}
+
 * { box-sizing: border-box; }
 
 html { scroll-behavior: smooth; }
@@ -857,7 +887,7 @@ table { width: 100%; border-collapse: collapse; }
   padding: 12px 14px 14px;
   border: 1px solid var(--line-strong);
   border-radius: var(--r-md);
-  background: rgba(255, 255, 255, .98);
+  background: color-mix(in srgb, var(--panel) 97%, transparent);
   box-shadow: 0 18px 48px rgba(15, 23, 42, .14);
 }
 

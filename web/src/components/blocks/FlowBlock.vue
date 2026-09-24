@@ -12,6 +12,7 @@ import { rememberedNodeFor, rememberFlowSelection } from '../../selection'
 import { normalize, type NormEdge, type NormGraph, type NormNode } from '../../flow/normalize'
 import { layoutGraph, type Direction, type GroupBox, type LaidOutNode } from '../../flow/elk-layout'
 import OrthogonalEdge from '../../flow/OrthogonalEdge.vue'
+import { useTheme } from '../../theme'
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 
@@ -22,6 +23,13 @@ const emit = defineEmits<{ ask: [selection: { type: 'node'; id: string; label?: 
 // flattened to one graph here, so nothing below branches on variant.
 const graph = shallowRef<NormGraph>(normalize(props.block))
 const nodeById = computed(() => new Map(graph.value.nodes.map((node) => [node.id, node])))
+
+// Canvas chrome (dot grid, minimap) is drawn as SVG attributes, so it cannot
+// inherit CSS tokens — bind it to the resolved theme instead.
+const { resolved: theme } = useTheme()
+const gridColor = computed(() => (theme.value === 'dark' ? '#24324a' : '#e2e8f0'))
+const minimapNode = computed(() => (theme.value === 'dark' ? '#334155' : '#94a3b8'))
+const minimapMask = computed(() => (theme.value === 'dark' ? 'rgba(2,6,23,.45)' : 'rgba(15,23,42,.08)'))
 
 const nodes = shallowRef<Node[]>([])
 const edges = shallowRef<Edge[]>([])
@@ -398,7 +406,7 @@ watch([hoveredId, searchTerm, hiddenKinds], applyHighlight)
             <em v-if="data.tag" class="node-tag">{{ data.tag }}</em>
           </div>
         </template>
-        <Background pattern-color="#e2e8f0" :gap="20" />
+        <Background :pattern-color="gridColor" :gap="20" />
         <Controls />
         <MiniMap
           v-if="showMinimap"
@@ -406,8 +414,8 @@ watch([hoveredId, searchTerm, hiddenKinds], applyHighlight)
           zoomable
           :width="150"
           :height="98"
-          node-color="#94a3b8"
-          mask-color="rgba(15,23,42,.08)"
+          :node-color="minimapNode"
+          :mask-color="minimapMask"
         />
       </VueFlow>
       <div v-if="kinds.length" class="flow-legend">
@@ -528,7 +536,7 @@ watch([hoveredId, searchTerm, hiddenKinds], applyHighlight)
   position: absolute; z-index: 9; bottom: 10px; left: 50%; transform: translateX(-50%);
   display: flex; flex-wrap: wrap; justify-content: center; gap: 4px;
   max-width: calc(100% - 120px); padding: 4px 6px;
-  border: 1px solid var(--line); border-radius: var(--r-md); background: rgba(255, 255, 255, .94);
+  border: 1px solid var(--line); border-radius: var(--r-md); background: color-mix(in srgb, var(--panel) 94%, transparent);
 }
 .flow-legend-chip {
   display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px 2px 5px;

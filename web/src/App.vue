@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { SHORTCUTS, useShortcuts } from './shortcuts'
+import { useTheme } from './theme'
 
 const { helpOpen } = useShortcuts()
+const { resolved, toggle } = useTheme()
 </script>
 
 <template>
@@ -15,6 +17,12 @@ const { helpOpen } = useShortcuts()
       </RouterLink>
       <span class="tagline">Engineering investigation notebook</span>
       <span class="topbar-spacer" />
+      <button
+        class="topbar-help"
+        :title="resolved === 'dark' ? '切换到浅色主题' : '切换到深色主题'"
+        :aria-label="resolved === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'"
+        @click="toggle"
+      >{{ resolved === 'dark' ? '☀' : '☾' }}</button>
       <button class="topbar-help" title="键盘快捷键 (?)" aria-label="Keyboard shortcuts" @click="helpOpen = true">?</button>
     </header>
     <RouterView />
