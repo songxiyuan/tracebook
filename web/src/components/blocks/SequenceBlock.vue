@@ -4,6 +4,7 @@ import type { Artifact, SequenceBlock } from '../../../../src/core/model'
 import { buildPassport, reachable, type GEdge, type GNode } from '../../diagram/graph-analysis'
 import SemanticPassport from '../../diagram/SemanticPassport.vue'
 import { copyText } from '../../clipboard'
+import { downloadBlob, downloadSvg, inlineSvgString, svgToPng } from '../../diagram/diagram-export'
 
 const props = defineProps<{ block: SequenceBlock; artifacts: Artifact[] }>()
 const emit = defineEmits<{ ask: [selection: { type: 'node'; id: string; label?: string }] }>()
@@ -181,6 +182,19 @@ function zoomIn() { zoom.value = Math.min(2.5, Math.round((zoom.value + 0.25) * 
 function zoomOut() { zoom.value = Math.max(0.5, Math.round((zoom.value - 0.25) * 4) / 4) }
 function zoomReset() { zoom.value = 1 }
 const zoomPercent = computed(() => Math.round(zoom.value * 100))
+
+// --- export (the sequence is a real SVG, so we inline styles and serialize) --
+const svgEl = ref<SVGSVGElement>()
+function exportName(): string {
+  return (title.value || 'sequence').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'sequence'
+}
+function exportSvg() {
+  if (svgEl.value) downloadSvg(`${exportName()}.svg`, inlineSvgString(svgEl.value))
+}
+async function exportPng() {
+  if (!svgEl.value) return
+  downloadBlob(`${exportName()}.png`, await svgToPng(inlineSvgString(svgEl.value), width.value, height.value, 2))
+}
 </script>
 
 
@@ -193,9 +207,13 @@ const zoomPercent = computed(() => Math.round(zoom.value * 100))
         <span class="seq-zoom">{{ zoomPercent }}%</span>
         <button title="Zoom in" @click="zoomIn">+</button>
         <button title="Reset zoom" @click="zoomReset">Fit</button>
+        <span class="seq-sep" aria-hidden="true" />
+        <button title="导出 SVG" @click="exportSvg">SVG</button>
+        <button title="导出 PNG" @click="exportPng">PNG</button>
       </div>
       <div class="seq-scroll">
         <svg
+          ref="svgEl"
           class="seq-svg"
           :width="width * zoom"
           :height="height * zoom"
@@ -317,6 +335,7 @@ const zoomPercent = computed(() => Math.round(zoom.value * 100))
 }
 .seq-toolbar button:hover { border-color: var(--frontend); color: var(--frontend); }
 .seq-zoom { min-width: 40px; color: var(--muted); font: 500 11px/1 var(--font-mono); font-variant-numeric: tabular-nums; text-align: center; }
+.seq-sep { width: 1px; align-self: stretch; margin: 0 4px; background: var(--line); }
 .seq-scroll { overflow: auto; padding: 4px; }
 .seq-svg { display: block; font-family: var(--font-sans); }
 .seq-empty { margin: 0; padding: 16px; color: var(--muted); font-size: 13px; }

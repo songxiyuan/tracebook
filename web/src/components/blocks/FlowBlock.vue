@@ -16,6 +16,9 @@ import { useTheme } from '../../theme'
 import { buildPassport, reachable, type GEdge, type GNode } from '../../diagram/graph-analysis'
 import SemanticPassport from '../../diagram/SemanticPassport.vue'
 import { blockLink, copyText } from '../../clipboard'
+import { buildFlowSvg, type SvgEdge, type SvgGroup, type SvgNode } from '../../flow/flow-to-svg'
+import { downloadBlob, downloadSvg, svgToPng } from '../../diagram/diagram-export'
+import type { Point } from '../../flow/elk-layout'
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 
@@ -37,6 +40,7 @@ const minimapMask = computed(() => (theme.value === 'dark' ? 'rgba(2,6,23,.45)' 
 const nodes = shallowRef<Node[]>([])
 const edges = shallowRef<Edge[]>([])
 const layoutNodes = shallowRef<LaidOutNode[]>([])
+const groupBoxes = shallowRef<GroupBox[]>([])
 const selectedId = ref<string | undefined>(rememberedNodeFor(props.block.id))
 const selected = computed(() => nodeById.value.get(selectedId.value ?? ''))
 
@@ -192,6 +196,7 @@ async function layout() {
     const current = graph.value
     const result = await layoutGraph(current, direction.value)
     layoutNodes.value = result.nodes
+    groupBoxes.value = result.groups
     const positions = new Map(result.nodes.map((node) => [node.id, node]))
     const sources = new Map(current.nodes.map((node) => [node.id, node]))
     const laneNodes = result.groups.map(groupNode)
@@ -362,6 +367,44 @@ async function copyPassportLink() {
     setTimeout(() => { passportCopied.value = false }, 1500)
   }
 }
+
+function exportName(): string {
+  return (props.block.title || 'flow').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'flow'
+}
+/** Redraw the ELK geometry as a standalone SVG (Vue Flow's HTML nodes can't be serialized). */
+function buildExportSvg(): { svg: string; width: number; height: number } {
+  const nodesById = new Map(graph.value.nodes.map((node) => [node.id, node]))
+  const pad = 24
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  const consider = (x: number, y: number, w: number, h: number) => {
+    minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x + w); maxY = Math.max(maxY, y + h)
+  }
+  for (const node of layoutNodes.value) consider(node.x, node.y, node.width, node.height)
+  for (const box of groupBoxes.value) consider(box.x, box.y, box.width, box.height)
+  if (!Number.isFinite(minX)) { minX = 0; minY = 0; maxX = 100; maxY = 100 }
+  const dx = pad - minX
+  const dy = pad - minY
+  const width = (maxX - minX) + pad * 2
+  const height = (maxY - minY) + pad * 2
+  const svgNodes: SvgNode[] = layoutNodes.value.map((node) => {
+    const source = nodesById.get(node.id)
+    return { x: node.x + dx, y: node.y + dy, w: node.width, h: node.height, label: source?.label ?? node.id, sublabel: source?.sublabel, kind: source?.kind, shape: source?.shape ?? 'box' }
+  })
+  const svgGroups: SvgGroup[] = groupBoxes.value.map((box) => ({ x: box.x + dx, y: box.y + dy, w: box.width, h: box.height, label: box.label }))
+  const svgEdges: SvgEdge[] = edges.value
+    .filter((edge) => (edge.data as { points?: Point[] })?.points?.length)
+    .map((edge) => {
+      const points = ((edge.data as { points: Point[] }).points).map((point) => ({ x: point.x + dx, y: point.y + dy }))
+      const style = (edge.style ?? {}) as { stroke?: string; strokeWidth?: number; strokeDasharray?: string }
+      return { points, color: style.stroke ?? '#cbd5e1', width: Number(style.strokeWidth ?? 1.6), dash: style.strokeDasharray }
+    })
+  return { svg: buildFlowSvg({ width, height, nodes: svgNodes, edges: svgEdges, groups: svgGroups }), width, height }
+}
+function exportSvg() { downloadSvg(`${exportName()}.svg`, buildExportSvg().svg) }
+async function exportPng() {
+  const { svg, width, height } = buildExportSvg()
+  downloadBlob(`${exportName()}.png`, await svgToPng(svg, width, height, 2))
+}
 function restoreSelection() {
   const remembered = rememberedNodeFor(props.block.id)
   selectedId.value = remembered && nodeById.value.has(remembered) ? remembered : undefined
@@ -396,6 +439,9 @@ watch([hoveredId, searchTerm, hiddenKinds, reachDir], applyHighlight)
       <span class="tb-zoom" :title="`Current zoom ${zoomPercent}%`">{{ zoomPercent }}%</span>
       <span class="tb-sep" aria-hidden="true"></span>
       <button :class="{ active: showMinimap }" title="Show or hide the minimap" @click="showMinimap = !showMinimap">Map</button>
+      <span class="tb-sep" aria-hidden="true"></span>
+      <button title="导出 SVG" @click="exportSvg">SVG</button>
+      <button title="导出 PNG" @click="exportPng">PNG</button>
       <label class="tb-search" title="Highlight nodes whose label matches">
         <input v-model="searchTerm" type="search" placeholder="Find node" aria-label="Find node by label" />
       </label>
