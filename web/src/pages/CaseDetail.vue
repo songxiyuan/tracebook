@@ -16,6 +16,7 @@ import {
   type AskSelection,
 } from '../session'
 import { clearFlowSelection } from '../selection'
+import { caseToJson, caseToMarkdown, downloadText, slugify } from '../export'
 import type { CaseDocument } from '../../../src/core/model'
 
 const route = useRoute()
@@ -306,6 +307,19 @@ function handleAskResult(result: AskResult) {
   askError.value = `插入对话失败（${result.reason ?? 'unknown'}），可复制上下文后手动粘贴。`
 }
 
+/** Export/print are pure client-side projections of the loaded document. */
+function exportJson() {
+  const doc = document.value
+  if (!doc) return
+  downloadText(`${slugify(doc.title)}.json`, caseToJson(doc), 'application/json')
+}
+function exportMarkdown() {
+  const doc = document.value
+  if (!doc) return
+  downloadText(`${slugify(doc.title)}.md`, caseToMarkdown(doc), 'text/markdown')
+}
+function printCase() { window.print() }
+
 watch(caseId, () => {
   clearFlowSelection()
   void load()
@@ -418,6 +432,11 @@ onBeforeUnmount(() => {
           <span>{{ document.artifacts.length }} artifacts</span>
           <span>Updated {{ new Date(document.updatedAt).toLocaleString() }}</span>
           <span v-if="embedded">Embedded in DSH</span>
+        </div>
+        <div class="case-actions no-print">
+          <button class="ghost" title="下载完整 JSON" @click="exportJson">Export JSON</button>
+          <button class="ghost" title="下载 Markdown 摘要" @click="exportMarkdown">Export Markdown</button>
+          <button class="ghost" title="打印 / 另存为 PDF" @click="printCase">Print</button>
         </div>
         <p v-if="sessionId && !linkedToSession" class="session-hint">
           当前 Session（{{ sessionId }}）尚未关联这个 Case。

@@ -1274,3 +1274,22 @@ table { width: 100%; border-collapse: collapse; }
   /* Environment and timestamp are the least load-bearing columns on a phone. */
   .col-optional { display: none; }
 }
+
+/* Case export actions row. */
+.case-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.case-actions .ghost { font: 500 11px/1 var(--font-mono); }
+
+/* Print: drop the app chrome and navigation, keep the document readable on paper. */
+@media print {
+  .topbar,
+  .outline,
+  .outline-toggle,
+  .no-print,
+  .update-notice,
+  .session-strip { display: none !important; }
+  .case-layout { display: block; }
+  .case-document { max-width: none; padding: 0; }
+  body { background: #fff; }
+  a { text-decoration: none; color: inherit; }
+}
+
