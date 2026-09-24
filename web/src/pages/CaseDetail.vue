@@ -329,6 +329,12 @@ watch(askTarget, (target) => {
   void nextTick().then(() => askDialog.value?.focus())
 })
 
+// Refine the browser tab title to the loaded case (the router only sets the
+// generic default for this route, since the title is not known at navigation).
+watch(() => document.value?.title, (title) => {
+  if (title) globalThis.document.title = `${title} · Tracebook`
+})
+
 onMounted(async () => {
   const fromQuery = route.query.session
   if (typeof fromQuery === 'string') rememberSession(fromQuery)
