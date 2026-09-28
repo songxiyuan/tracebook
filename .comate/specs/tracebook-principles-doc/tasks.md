@@ -36,7 +36,7 @@
     - 7.1: 第 9 章：BlockRenderer 分发 + 9 种渲染器；Flow=Vue Flow + ELK.js 分工；语义护照/可达透镜/缩放/演示/导出
     - 7.2: 第 10 章：薄 Client Plugin + iframe 嵌入 + session postMessage「Ask about this」
 
-- [ ] Task 8: 收尾校对与提交
+- [x] Task 8: 收尾校对与提交
     - 8.1: 补齐第 11 章约束清单；通读校对图表可渲染、行号引用准确、与代码一致
     - 8.2: 自动创建一次 Git commit（遵守 AGENTS.md §4）
     - 8.3: 生成 `summary.md`

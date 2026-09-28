@@ -95,13 +95,20 @@ function markImageFailed(id: string) {
 const {
   fitView, zoomTo, setViewport, getViewport, viewport,
   nodes: flowNodes, edges: flowEdges,
+  onNodesInitialized,
 } = useVueFlow()
+
+// Vue Flow measures node sizes asynchronously; a fit run before that (or before
+// the shell finishes resizing to the new content height) frames a stale viewport
+// and clips the first row. Re-fit once nodes report real dimensions so the graph
+// always opens centred, like the standalone archify export.
+onNodesInitialized(() => { void runFit() })
 
 const layoutError = ref<string | undefined>(undefined)
 const CANVAS_MIN_HEIGHT = 260
 const CANVAS_MAX_HEIGHT = 640
 const shellHeight = ref(380)
-const OVERVIEW_ZOOM = 0.6
+const OVERVIEW_ZOOM = 0.45
 const overviewMode = ref(false)
 const canvasEl = ref<HTMLElement>()
 
@@ -249,8 +256,11 @@ async function layout() {
 }
 
 async function runFit() {
-  await fitView({ padding: 0.14, minZoom: OVERVIEW_ZOOM })
-  overviewMode.value = getViewport().zoom <= OVERVIEW_ZOOM + 0.001
+  // Fit the whole graph with no artificial zoom floor, so a wide LR graph always
+  // opens fully framed instead of being clamped and pushed off-canvas. The
+  // overview hint only appears for a genuinely tiny fit (very large graphs).
+  await fitView({ padding: 0.14, minZoom: 0.1 })
+  overviewMode.value = getViewport().zoom < OVERVIEW_ZOOM - 0.001
 }
 function resetFit() { void runFit() }
 
@@ -484,10 +494,9 @@ watch([hoveredId, searchTerm, hiddenKinds, reachDir, presentIndex], applyHighlig
     </div>
 
     <div v-if="overviewMode" class="flow-overview" role="status">
-      <span>Graph is large — showing an overview.</span>
+      <span>图较大 · 已缩略</span>
       <button @click="fitWidth">Fit width</button>
       <button @click="zoomActual">100%</button>
-      <button @click="resetFit">Reset</button>
     </div>
     <div ref="canvasEl" class="flow-canvas">
       <p v-if="layoutError" class="flow-error" role="alert">Flow layout failed: {{ layoutError }}</p>
@@ -645,12 +654,12 @@ watch([hoveredId, searchTerm, hiddenKinds, reachDir, presentIndex], applyHighlig
   color: var(--ink-strong); font: 500 10px/1 var(--font-mono);
 }
 
-/* Large-graph affordance. */
+/* Large-graph affordance: a compact chip docked bottom-right, out of the toolbar. */
 .flow-overview {
-  position: absolute; z-index: 10; top: 10px; left: 50%; transform: translateX(-50%);
+  position: absolute; z-index: 10; bottom: 10px; right: 10px;
   display: flex; align-items: center; gap: 6px; padding: 4px 6px 4px 10px;
-  border: 1px solid var(--line-strong); border-radius: var(--r-md); background: var(--panel);
-  box-shadow: 0 8px 24px rgba(15, 23, 42, .12); color: var(--muted); font: 500 10.5px/1.3 var(--font-mono);
+  border: 1px solid var(--line-strong); border-radius: var(--r-pill); background: color-mix(in srgb, var(--panel) 96%, transparent);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, .12); color: var(--muted); font: 500 10px/1.3 var(--font-mono);
 }
 .flow-overview button {
   padding: 3px 7px; border: 1px solid var(--line); border-radius: var(--r-sm);
